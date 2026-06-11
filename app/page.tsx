@@ -22,6 +22,15 @@ export default function HomePage() {
     el.scrollIntoView({ behavior: "smooth", block: "start" });
     setHighlightPairId(pairId);
     window.setTimeout(() => setHighlightPairId(null), 2000);
+
+    const currentStep = document.getElementById(`pair-${pairId}-current-step`);
+    if (currentStep) {
+      currentStep.scrollIntoView({
+        behavior: "smooth",
+        block: "nearest",
+        inline: "center",
+      });
+    }
   }, []);
 
   const handleJumpToPair = useCallback(

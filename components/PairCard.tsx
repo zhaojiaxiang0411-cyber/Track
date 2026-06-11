@@ -121,6 +121,11 @@ export function PairCard({ pair, onUpdated, highlighted }: PairCardProps) {
           {pair.steps.map((step) => (
             <StepButton
               key={step.id}
+              id={
+                pair.current_step_order === step.step_order
+                  ? `pair-${pair.id}-current-step`
+                  : undefined
+              }
               step={step}
               switch1={pair.switch1}
               switch2={pair.switch2}

@@ -11,6 +11,7 @@ type StepButtonProps = {
   isCurrent: boolean;
   onComplete: (stepOrder: number) => Promise<void>;
   completing: number | null;
+  id?: string;
 };
 
 function phaseLabel(stepOrder: number, switch1: string, switch2: string): string {
@@ -29,6 +30,7 @@ export function StepButton({
   isCurrent,
   onComplete,
   completing,
+  id,
 }: StepButtonProps) {
   const isDone = Boolean(step.completed_at);
   const isTeamA = step.team === "A";
@@ -62,6 +64,7 @@ export function StepButton({
   return (
     <button
       type="button"
+      id={id}
       onClick={handleClick}
       disabled={!isCurrent || isDone || isBusy}
       className={className}
