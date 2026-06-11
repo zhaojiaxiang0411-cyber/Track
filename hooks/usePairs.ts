@@ -3,7 +3,7 @@
 import type { PairFilter, PairWithSteps } from "@/lib/types";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-const RECENT_HINT_MS = 3000;
+const RECENT_HINT_MS = 10000;
 
 function filterPairs(all: PairWithSteps[], filter: PairFilter): PairWithSteps[] {
   switch (filter) {
