@@ -23,8 +23,13 @@ export async function POST(request: NextRequest) {
     const body = (await request.json()) as {
       switch1?: string;
       switch2?: string;
+      owner?: string;
     };
-    const pair = createPair(body.switch1 ?? "", body.switch2 ?? "");
+    const pair = createPair(
+      body.switch1 ?? "",
+      body.switch2 ?? "",
+      body.owner ?? ""
+    );
     return NextResponse.json({ pair }, { status: 201 });
   } catch (error) {
     return NextResponse.json(

@@ -9,6 +9,7 @@ type CreatePairFormProps = {
 export function CreatePairForm({ onCreated }: CreatePairFormProps) {
   const [switch1, setSwitch1] = useState("");
   const [switch2, setSwitch2] = useState("");
+  const [owner, setOwner] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -20,12 +21,13 @@ export function CreatePairForm({ onCreated }: CreatePairFormProps) {
       const res = await fetch("/api/pairs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ switch1, switch2 }),
+        body: JSON.stringify({ switch1, switch2, owner }),
       });
       const data = (await res.json()) as { error?: string };
       if (!res.ok) throw new Error(data.error ?? "创建失败");
       setSwitch1("");
       setSwitch2("");
+      setOwner("");
       onCreated();
     } catch (err) {
       setError(err instanceof Error ? err.message : "创建失败");
@@ -63,6 +65,18 @@ export function CreatePairForm({ onCreated }: CreatePairFormProps) {
           placeholder="如 202"
           className="w-28 rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
           required
+        />
+      </div>
+      <div>
+        <label className="mb-1 block text-xs font-medium text-slate-500">
+          Owner
+        </label>
+        <input
+          type="text"
+          value={owner}
+          onChange={(e) => setOwner(e.target.value)}
+          placeholder="可选，负责人"
+          className="w-36 rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
         />
       </div>
       <button

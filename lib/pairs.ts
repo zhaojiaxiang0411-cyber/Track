@@ -9,6 +9,7 @@ function rowToPair(row: Record<string, unknown>): Pair {
     id: row.id as number,
     switch1: row.switch1 as string,
     switch2: row.switch2 as string,
+    owner: (row.owner as string | null) ?? null,
     status: row.status as Pair["status"],
     created_at: row.created_at as string,
   };
@@ -96,9 +97,14 @@ export function getPairById(id: number): PairWithSteps | null {
   return enrichPair(pair, steps);
 }
 
-export function createPair(switch1: string, switch2: string): PairWithSteps {
+export function createPair(
+  switch1: string,
+  switch2: string,
+  owner = ""
+): PairWithSteps {
   const s1 = switch1.trim();
   const s2 = switch2.trim();
+  const ownerName = owner.trim();
   if (!s1 || !s2) {
     throw new Error("交换机编号不能为空");
   }
@@ -108,7 +114,7 @@ export function createPair(switch1: string, switch2: string): PairWithSteps {
 
   const db = getDb();
   const insertPair = db.prepare(
-    "INSERT INTO pairs (switch1, switch2) VALUES (?, ?)"
+    "INSERT INTO pairs (switch1, switch2, owner) VALUES (?, ?, ?)"
   );
   const insertStep = db.prepare(`
     INSERT INTO step_instances (pair_id, step_order, action_key, team, label, started_at)
@@ -116,7 +122,7 @@ export function createPair(switch1: string, switch2: string): PairWithSteps {
   `);
 
   const pairId = runTransaction(() => {
-    const result = insertPair.run(s1, s2);
+    const result = insertPair.run(s1, s2, ownerName || null);
     const newPairId = Number(result.lastInsertRowid);
 
     for (const step of PIPELINE_STEPS) {

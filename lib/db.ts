@@ -19,6 +19,7 @@ function initSchema(database: DatabaseSync) {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       switch1 TEXT NOT NULL,
       switch2 TEXT NOT NULL,
+      owner TEXT,
       status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'completed')),
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -39,8 +40,19 @@ function initSchema(database: DatabaseSync) {
 
     CREATE INDEX IF NOT EXISTS idx_step_instances_pair_id ON step_instances(pair_id);
   `);
+  migrateAddOwnerColumn(database);
   migrateStepLabels(database);
   migrateRemoveCheckFaultSteps(database);
+}
+
+function migrateAddOwnerColumn(database: DatabaseSync) {
+  const columns = database
+    .prepare("PRAGMA table_info(pairs)")
+    .all() as Array<{ name: string }>;
+  const hasOwner = columns.some((col) => col.name === "owner");
+  if (!hasOwner) {
+    database.exec("ALTER TABLE pairs ADD COLUMN owner TEXT");
+  }
 }
 
 function migrateStepLabels(database: DatabaseSync) {

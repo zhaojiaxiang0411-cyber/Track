@@ -1,7 +1,7 @@
 "use client";
 
-import { resolveStepLabel } from "@/lib/pipeline";
-import { teamLabel } from "@/lib/format";
+import { resolveStepLabel, resolveStepSwitch } from "@/lib/pipeline";
+import { teamLabel, formatDuration } from "@/lib/format";
 import type { StepInstance } from "@/lib/types";
 
 type PipelineProgressDotsProps = {
@@ -11,6 +11,9 @@ type PipelineProgressDotsProps = {
   compact?: boolean;
   /** 显示步骤编号 tooltip */
   showTooltip?: boolean;
+  /** 交换机对，用于在悬停卡片中显示「该步骤对应的交换机」 */
+  switch1?: string;
+  switch2?: string;
 };
 
 function dotClass(
@@ -44,6 +47,8 @@ export function PipelineProgressDots({
   currentStepOrder,
   compact = false,
   showTooltip = true,
+  switch1,
+  switch2,
 }: PipelineProgressDotsProps) {
   const doneCount = steps.filter((s) => s.completed_at).length;
   const total = steps.length;
@@ -64,21 +69,91 @@ export function PipelineProgressDots({
           const isDone = Boolean(step.completed_at);
           const isCurrent = currentStepOrder === step.step_order;
           const label = resolveStepLabel(step.step_order, step.label);
+          const stepSwitch = resolveStepSwitch(step.step_order, switch1, switch2);
 
-          let title = `#${step.step_order} ${label}`;
-          if (isDone) title += " · 已完成";
-          else if (isCurrent) title += ` · 进行中（${teamLabel(step.team)}）`;
-          else title += " · 待执行";
+          const statusText = isDone
+            ? "已完成"
+            : isCurrent
+              ? "进行中"
+              : "待执行";
+
+          // 原生 title 作为无障碍/兜底
+          const fallbackTitle = `#${step.step_order} ${label}${
+            stepSwitch ? ` · ${stepSwitch}` : ""
+          } · ${statusText}`;
 
           return (
             <span
               key={step.id}
-              className={dotClass(step, isDone, isCurrent, compact)}
-              title={showTooltip ? title : undefined}
-            />
+              className="group/dot relative inline-flex shrink-0"
+            >
+              <span
+                className={dotClass(step, isDone, isCurrent, compact)}
+                title={showTooltip ? fallbackTitle : undefined}
+                aria-label={fallbackTitle}
+              />
+              {showTooltip && (
+                <span className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 hidden -translate-x-1/2 group-hover/dot:block">
+                  <span className="block whitespace-nowrap rounded-lg bg-slate-900 px-3 py-2 text-left shadow-lg ring-1 ring-black/5">
+                    <span className="block text-[11px] font-semibold text-white">
+                      #{step.step_order} {label}
+                    </span>
+                    {stepSwitch && (
+                      <span className="mt-1 flex items-center gap-1 text-[10px] text-slate-200">
+                        <SwitchIcon />
+                        <span className="font-medium tabular-nums">
+                          {stepSwitch}
+                        </span>
+                      </span>
+                    )}
+                    <span className="mt-1 flex items-center gap-1.5 text-[10px]">
+                      <span
+                        className={`inline-block h-1.5 w-1.5 rounded-full ${
+                          isDone
+                            ? step.team === "A"
+                              ? "bg-blue-400"
+                              : "bg-orange-400"
+                            : isCurrent
+                              ? "bg-amber-300"
+                              : "bg-slate-500"
+                        }`}
+                      />
+                      <span className="text-slate-300">
+                        {statusText} · {teamLabel(step.team)}
+                      </span>
+                    </span>
+                    {isDone && step.duration_sec !== null && (
+                      <span className="mt-0.5 block text-[10px] text-slate-400">
+                        耗时 {formatDuration(step.duration_sec)}
+                      </span>
+                    )}
+                    <span className="absolute left-1/2 top-full h-0 w-0 -translate-x-1/2 border-x-4 border-t-4 border-x-transparent border-t-slate-900" />
+                  </span>
+                </span>
+              )}
+            </span>
           );
         })}
       </div>
     </div>
+  );
+}
+
+function SwitchIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="h-3 w-3 shrink-0 text-slate-400"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="2" y="6" width="20" height="5" rx="1" />
+      <rect x="2" y="13" width="20" height="5" rx="1" />
+      <path d="M6 8.5h.01M6 15.5h.01" />
+    </svg>
   );
 }

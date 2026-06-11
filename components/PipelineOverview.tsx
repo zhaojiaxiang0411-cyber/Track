@@ -47,12 +47,21 @@ export function PipelineOverview({ pairs, onJumpToPair }: PipelineOverviewProps)
             onClick={() => onJumpToPair?.(pair.id)}
             className="flex w-full flex-wrap items-center gap-3 rounded-lg bg-slate-50 px-3 py-2 text-left transition-colors duration-300 hover:bg-slate-100 hover:ring-1 hover:ring-slate-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
           >
-            <span className="min-w-[5.5rem] text-xs font-semibold text-slate-700">
-              {pair.switch1}–{pair.switch2}
+            <span className="flex w-44 shrink-0 items-center gap-2">
+              <span className="shrink-0 text-xs font-semibold text-slate-700">
+                {pair.switch1}–{pair.switch2}
+              </span>
+              {pair.owner && (
+                <span className="truncate rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-medium text-slate-600">
+                  {pair.owner}
+                </span>
+              )}
             </span>
             <PipelineProgressDots
               steps={pair.steps}
               currentStepOrder={pair.current_step_order}
+              switch1={pair.switch1}
+              switch2={pair.switch2}
               compact
             />
             <span className="ml-auto text-[10px] text-slate-400">

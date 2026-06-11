@@ -79,6 +79,11 @@ export function PairCard({ pair, onUpdated, highlighted }: PairCardProps) {
         <div>
           <h2 className="text-lg font-bold text-slate-900">
             Pair {pair.switch1} – {pair.switch2}
+            {pair.owner && (
+              <span className="ml-2 align-middle rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+                Owner: {pair.owner}
+              </span>
+            )}
           </h2>
           <p className="text-xs text-slate-500">
             创建于 {formatDateTime(pair.created_at)}
@@ -106,6 +111,8 @@ export function PairCard({ pair, onUpdated, highlighted }: PairCardProps) {
         <PipelineProgressDots
           steps={pair.steps}
           currentStepOrder={pair.current_step_order}
+          switch1={pair.switch1}
+          switch2={pair.switch2}
         />
       </div>
 
