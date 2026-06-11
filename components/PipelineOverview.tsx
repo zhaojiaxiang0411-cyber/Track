@@ -7,9 +7,14 @@ import { PipelineProgressDots } from "./PipelineProgressDots";
 type PipelineOverviewProps = {
   pairs: PairWithSteps[];
   onJumpToPair?: (pairId: number) => void;
+  recentlyUpdated?: ReadonlySet<number>;
 };
 
-export function PipelineOverview({ pairs, onJumpToPair }: PipelineOverviewProps) {
+export function PipelineOverview({
+  pairs,
+  onJumpToPair,
+  recentlyUpdated,
+}: PipelineOverviewProps) {
   const total = pairs.length;
   const waitingA = pairs.filter((p) => p.waiting_team === "A").length;
   const waitingB = pairs.filter((p) => p.waiting_team === "B").length;
@@ -40,12 +45,18 @@ export function PipelineOverview({ pairs, onJumpToPair }: PipelineOverviewProps)
       </div>
 
       <div className="space-y-2">
-        {pairs.map((pair) => (
+        {pairs.map((pair) => {
+          const justUpdated = recentlyUpdated?.has(pair.id) ?? false;
+          return (
           <button
             key={pair.id}
             type="button"
             onClick={() => onJumpToPair?.(pair.id)}
-            className="flex w-full flex-wrap items-center gap-3 rounded-lg bg-slate-50 px-3 py-2 text-left transition-colors duration-300 hover:bg-slate-100 hover:ring-1 hover:ring-slate-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+            className={`flex w-full flex-wrap items-center gap-3 rounded-lg px-3 py-2 text-left transition-all duration-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+              justUpdated
+                ? "bg-emerald-50 ring-2 ring-emerald-400"
+                : "bg-slate-50 hover:bg-slate-100 hover:ring-1 hover:ring-slate-200"
+            }`}
           >
             <span className="flex w-44 shrink-0 items-center gap-2">
               <span className="shrink-0 text-xs font-semibold text-slate-700">
@@ -64,6 +75,12 @@ export function PipelineOverview({ pairs, onJumpToPair }: PipelineOverviewProps)
               switch2={pair.switch2}
               compact
             />
+            {justUpdated && (
+              <span className="inline-flex animate-pulse items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                刚更新
+              </span>
+            )}
             <span className="ml-auto text-[10px] text-slate-400">
               {pair.status === "completed" ? (
                 <span className="font-medium text-emerald-600">已完成</span>
@@ -78,7 +95,8 @@ export function PipelineOverview({ pairs, onJumpToPair }: PipelineOverviewProps)
               ) : null}
             </span>
           </button>
-        ))}
+          );
+        })}
       </div>
     </section>
   );

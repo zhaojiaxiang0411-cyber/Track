@@ -1,7 +1,9 @@
 "use client";
 
 import type { PairFilter, PairWithSteps } from "@/lib/types";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+const RECENT_HINT_MS = 3000;
 
 function filterPairs(all: PairWithSteps[], filter: PairFilter): PairWithSteps[] {
   switch (filter) {
@@ -20,6 +22,35 @@ export function usePairs(filter: PairFilter) {
   const [allPairs, setAllPairs] = useState<PairWithSteps[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [recentlyUpdated, setRecentlyUpdated] = useState<ReadonlySet<number>>(
+    () => new Set()
+  );
+  const hintTimers = useRef<Map<number, ReturnType<typeof setTimeout>>>(
+    new Map()
+  );
+
+  const markRecentlyUpdated = useCallback((pairId: number) => {
+    setRecentlyUpdated((prev) => {
+      const next = new Set(prev);
+      next.add(pairId);
+      return next;
+    });
+
+    const existing = hintTimers.current.get(pairId);
+    if (existing) clearTimeout(existing);
+
+    const timer = setTimeout(() => {
+      hintTimers.current.delete(pairId);
+      setRecentlyUpdated((prev) => {
+        if (!prev.has(pairId)) return prev;
+        const next = new Set(prev);
+        next.delete(pairId);
+        return next;
+      });
+    }, RECENT_HINT_MS);
+
+    hintTimers.current.set(pairId, timer);
+  }, []);
 
   const fetchPairs = useCallback(async () => {
     try {
@@ -62,13 +93,37 @@ export function usePairs(filter: PairFilter) {
 
   useEffect(() => {
     const source = new EventSource("/api/events");
+    const timers = hintTimers.current;
 
-    source.addEventListener("pair_updated", () => {
+    source.addEventListener("pair_updated", (event) => {
       fetchPairs();
+      try {
+        const data = JSON.parse((event as MessageEvent).data) as {
+          pairId?: number;
+          action?: string;
+        };
+        if (data.action === "step_completed" && typeof data.pairId === "number") {
+          markRecentlyUpdated(data.pairId);
+        }
+      } catch {
+        /* ignore malformed event payloads */
+      }
     });
 
-    return () => source.close();
-  }, [fetchPairs]);
+    return () => {
+      source.close();
+      for (const timer of timers.values()) clearTimeout(timer);
+      timers.clear();
+    };
+  }, [fetchPairs, markRecentlyUpdated]);
 
-  return { pairs, allPairs, counts, loading, error, refresh: fetchPairs };
+  return {
+    pairs,
+    allPairs,
+    counts,
+    loading,
+    error,
+    refresh: fetchPairs,
+    recentlyUpdated,
+  };
 }

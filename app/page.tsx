@@ -13,7 +13,8 @@ export default function HomePage() {
   const [filter, setFilter] = useState<PairFilter>("all");
   const [highlightPairId, setHighlightPairId] = useState<number | null>(null);
   const [pendingScrollId, setPendingScrollId] = useState<number | null>(null);
-  const { pairs, allPairs, counts, loading, error, refresh } = usePairs(filter);
+  const { pairs, allPairs, counts, loading, error, refresh, recentlyUpdated } =
+    usePairs(filter);
 
   const scrollToPair = useCallback((pairId: number) => {
     const el = document.getElementById(`pair-${pairId}`);
@@ -78,7 +79,11 @@ export default function HomePage() {
       </section>
 
       {!loading && !error && allPairs.length > 0 && (
-        <PipelineOverview pairs={allPairs} onJumpToPair={handleJumpToPair} />
+        <PipelineOverview
+          pairs={allPairs}
+          onJumpToPair={handleJumpToPair}
+          recentlyUpdated={recentlyUpdated}
+        />
       )}
 
       {loading && (
