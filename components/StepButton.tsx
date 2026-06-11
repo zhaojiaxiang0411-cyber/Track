@@ -83,7 +83,7 @@ export function StepButton({
       {isDone && (
         <span className="mt-1 text-[10px] opacity-90">
           ✓ {formatDateTime(step.completed_at)}
-          {step.duration_sec !== null && (
+          {step.step_order !== 1 && step.step_order !== 2 && step.duration_sec !== null && (
             <span className="ml-1">({formatDuration(step.duration_sec)})</span>
           )}
         </span>

@@ -55,7 +55,7 @@ export default function HomePage() {
         <div className="mt-4 flex flex-wrap items-center gap-4 text-xs text-slate-500">
           <span className="flex items-center gap-1.5">
             <span className="inline-block h-3 w-3 rounded bg-blue-600" />
-            {teamLabel("A")}：MW Start / Snapshot / Decommission / Register / Check / Post Check
+            {teamLabel("A")}：Pipeline Start / Snapshot / Decommission / Register / Check / Post Check
           </span>
           <span className="flex items-center gap-1.5">
             <span className="inline-block h-3 w-3 rounded bg-orange-600" />

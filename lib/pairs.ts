@@ -35,8 +35,15 @@ function enrichPair(pair: Pair, steps: StepInstance[]): PairWithSteps {
   const lastCompleted = [...sorted].reverse().find((s) => s.completed_at);
 
   let totalDuration: number | null = null;
-  if (lastCompleted?.completed_at) {
-    const start = new Date(pair.created_at).getTime();
+  // 计时基准为 Snapshot（步骤 2）完成时刻，
+  // 不计入 MW Start（步骤 1）与 Snapshot（步骤 2）本身耗时
+  const EXCLUDED_LAST_ORDER = 2;
+  const snapshot = sorted.find((s) => s.step_order === 2);
+  const mwStart = sorted.find((s) => s.step_order === 1);
+  const baseTime =
+    snapshot?.completed_at ?? mwStart?.completed_at ?? pair.created_at;
+  if (lastCompleted?.completed_at && lastCompleted.step_order > EXCLUDED_LAST_ORDER) {
+    const start = new Date(baseTime).getTime();
     const end = new Date(lastCompleted.completed_at).getTime();
     totalDuration = Math.max(0, Math.round((end - start) / 1000));
   }

@@ -40,7 +40,7 @@ npm run build && npm start
 
 | # | Action | Team |
 |---|--------|------|
-| 1 | MW Start | A |
+| 1 | Pipeline Start | A |
 | 2 | Snapshot (SW1) | A |
 | 3 | Label (SW1) | B |
 | 4 | Decommission (SW1) | A |

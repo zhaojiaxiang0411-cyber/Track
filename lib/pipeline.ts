@@ -1,7 +1,7 @@
 import type { PipelineStepTemplate } from "./types";
 
 export const PIPELINE_STEPS: PipelineStepTemplate[] = [
-  { order: 1, actionKey: "mw_start", label: "MW Start", team: "A", phase: "全局" },
+  { order: 1, actionKey: "mw_start", label: "Pipeline Start", team: "A", phase: "全局" },
   { order: 2, actionKey: "snapshot_sw1", label: "Snapshot", team: "A", phase: "SW1" },
   { order: 3, actionKey: "label_sw1", label: "Label", team: "B", phase: "SW1" },
   { order: 4, actionKey: "decomm_sw1", label: "Decommission", team: "A", phase: "SW1" },
