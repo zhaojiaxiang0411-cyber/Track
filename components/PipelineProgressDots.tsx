@@ -16,6 +16,9 @@ type PipelineProgressDotsProps = {
   switch2?: string;
 };
 
+/** 与 globals.css 中 blink-strong 动画周期保持一致（毫秒），用于全局同频对齐 */
+const BLINK_PERIOD_MS = 900;
+
 function dotClass(
   step: StepInstance,
   isDone: boolean,
@@ -33,10 +36,10 @@ function dotClass(
   if (isCurrent) {
     return (
       base +
-      "ring-2 ring-offset-1 animate-pulse " +
+      "ring-2 ring-offset-1 animate-blink-strong " +
       (step.team === "A"
-        ? "bg-blue-400 ring-blue-500"
-        : "bg-orange-400 ring-orange-500")
+        ? "bg-blue-500 ring-blue-500 shadow-[0_0_0_3px_rgba(59,130,246,0.35)]"
+        : "bg-orange-500 ring-orange-500 shadow-[0_0_0_3px_rgba(249,115,22,0.35)]")
     );
   }
   return base + "bg-slate-200";
@@ -89,6 +92,11 @@ export function PipelineProgressDots({
             >
               <span
                 className={dotClass(step, isDone, isCurrent, compact)}
+                style={
+                  isCurrent
+                    ? { animationDelay: `-${Date.now() % BLINK_PERIOD_MS}ms` }
+                    : undefined
+                }
                 title={showTooltip ? fallbackTitle : undefined}
                 aria-label={fallbackTitle}
               />

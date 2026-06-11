@@ -1,4 +1,4 @@
-# 交换机替换流水线协作工具
+# ACI Leaf Refresh Pipeline 协作工具
 
 成对交换机（如 201-202）替换维护窗口的 Web 协作跟踪工具。两个 Team 通过颜色状态协作，自动记录每步完成时间，支持多 Pair 并行。
 
@@ -44,9 +44,9 @@ npm run build && npm start
 | 2 | Snapshot (SW1) | A |
 | 3 | Label (SW1) | B |
 | 4 | Decommission (SW1) | A |
-| 5 | Mount and Plugin Uplinks (SW1) | B |
+| 5 | Rack and Plugin Uplinks (SW1) | B |
 | 6 | 发现后 Commission (SW1) | A |
-| 7 | Plug in Downlink (SW1) | B |
+| 7 | Plugin Downlinks (SW1) | B |
 | 8 | Post Check (SW1) | A |
 | 9–13 | 同上流程 (SW2) | A/B |
 

@@ -21,7 +21,7 @@ export function PipelineOverview({ pairs, onJumpToPair }: PipelineOverviewProps)
   return (
     <section className="mb-6 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold text-slate-800">流水线概览</h2>
+        <h2 className="text-sm font-semibold text-slate-800">Pipeline Overview</h2>
         <div className="flex flex-wrap gap-3 text-xs">
           <StatBadge label="全部" count={total} color="slate" />
           <StatBadge label="进行中" count={inProgress} color="amber" />

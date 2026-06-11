@@ -63,14 +63,19 @@ function migrateStepLabels(database: DatabaseSync) {
       AND label IN ('Decomm', 'Decomission');
 
     UPDATE step_instances
-    SET label = 'Mount and Plugin Uplinks'
+    SET label = 'Rack and Plugin Uplinks'
     WHERE action_key IN ('uplink_only_sw1', 'uplink_only_sw2')
-      AND label = '消失后拔线，仅插上联 LED';
+      AND label IN ('消失后拔线，仅插上联 LED', 'Mount and Plugin Uplinks');
 
     UPDATE step_instances
     SET label = 'Register'
     WHERE action_key IN ('commission_sw1', 'commission_sw2')
       AND label IN ('发现后 Commission', '发现后 Register');
+
+    UPDATE step_instances
+    SET label = 'Plugin Downlinks'
+    WHERE action_key IN ('downlink_sw1', 'downlink_sw2')
+      AND label = 'Plug in Downlink';
   `);
 }
 

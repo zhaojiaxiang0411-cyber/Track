@@ -84,7 +84,7 @@ export function CreatePairForm({ onCreated }: CreatePairFormProps) {
         disabled={submitting}
         className="rounded-lg bg-slate-900 px-5 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
       >
-        {submitting ? "创建中…" : "新建 Pair"}
+        {submitting ? "创建中…" : "Build New Pipeline"}
       </button>
       {error && <p className="w-full text-sm text-red-600">{error}</p>}
     </form>

@@ -19,3 +19,26 @@ body {
     Arial,
     sans-serif;
 }
+
+/* 进行中步骤的强闪动效果：缩放 + 透明度 + 光晕 */
+@keyframes blink-strong {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1.25);
+  }
+  50% {
+    opacity: 0.35;
+    transform: scale(0.9);
+  }
+}
+
+.animate-blink-strong {
+  animation: blink-strong 0.9s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-blink-strong {
+    animation: none;
+  }
+}

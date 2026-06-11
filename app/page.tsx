@@ -47,7 +47,7 @@ export default function HomePage() {
     <main className="mx-auto min-h-screen max-w-7xl px-4 py-8 sm:px-6">
       <header className="mb-8">
         <h1 className="text-2xl font-bold text-slate-900 sm:text-3xl">
-          交换机替换流水线
+          ACI Leaf Refresh Pipeline
         </h1>
         <p className="mt-1 text-sm text-slate-500">
           {teamLabel("A")}（蓝）与 {teamLabel("B")}（橙）协作跟踪 · 实时同步
@@ -59,7 +59,7 @@ export default function HomePage() {
           </span>
           <span className="flex items-center gap-1.5">
             <span className="inline-block h-3 w-3 rounded bg-orange-600" />
-            {teamLabel("B")}：Label / 拔插线 / Downlink
+            {teamLabel("B")}：Label / Uplink / Downlink
           </span>
         </div>
       </header>
