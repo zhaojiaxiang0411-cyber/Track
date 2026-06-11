@@ -1,7 +1,7 @@
 import { getDb, runTransaction } from "./db";
 import { broadcast } from "./events";
 import { PIPELINE_STEPS, TOTAL_STEPS, resolveStepLabel } from "./pipeline";
-import { teamLabel } from "./format";
+import { nowLocalString, teamLabel } from "./format";
 import type { Pair, PairFilter, PairWithSteps, StepInstance, Team } from "./types";
 
 function rowToPair(row: Record<string, unknown>): Pair {
@@ -121,7 +121,7 @@ export function createPair(
 
   const db = getDb();
   const insertPair = db.prepare(
-    "INSERT INTO pairs (switch1, switch2, owner) VALUES (?, ?, ?)"
+    "INSERT INTO pairs (switch1, switch2, owner, created_at) VALUES (?, ?, ?, ?)"
   );
   const insertStep = db.prepare(`
     INSERT INTO step_instances (pair_id, step_order, action_key, team, label, started_at)
@@ -129,12 +129,11 @@ export function createPair(
   `);
 
   const pairId = runTransaction(() => {
-    const result = insertPair.run(s1, s2, ownerName || null);
+    const result = insertPair.run(s1, s2, ownerName || null, nowLocalString());
     const newPairId = Number(result.lastInsertRowid);
 
     for (const step of PIPELINE_STEPS) {
-      const startedAt =
-        step.order === 1 ? new Date().toISOString().replace("T", " ").slice(0, 19) : null;
+      const startedAt = step.order === 1 ? nowLocalString() : null;
       insertStep.run(
         newPairId,
         step.order,
@@ -179,7 +178,7 @@ export function completeStep(pairId: number, stepOrder: number): PairWithSteps {
     step.started_at ??
     prevStep?.completed_at ??
     pair.created_at;
-  const completedAt = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const completedAt = nowLocalString();
   const durationSec = Math.max(
     0,
     Math.round(

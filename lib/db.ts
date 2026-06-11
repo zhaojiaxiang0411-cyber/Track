@@ -21,7 +21,7 @@ function initSchema(database: DatabaseSync) {
       switch2 TEXT NOT NULL,
       owner TEXT,
       status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'completed')),
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
     );
 
     CREATE TABLE IF NOT EXISTS step_instances (
@@ -43,6 +43,36 @@ function initSchema(database: DatabaseSync) {
   migrateAddOwnerColumn(database);
   migrateStepLabels(database);
   migrateRemoveCheckFaultSteps(database);
+  migrateShiftLegacyUtcTimestamps(database);
+}
+
+// 一次性迁移：早期版本把时间以 UTC 存入（datetime('now') / toISOString()），
+// 显示端却按本地时间解析，导致旧数据偏早 8 小时。这里将已有旧数据 +8 小时
+// 校正到本地时区（东八区）。用 user_version 保证只执行一次，
+// 不会影响修复后按本地时间写入的新数据。
+function migrateShiftLegacyUtcTimestamps(database: DatabaseSync) {
+  const TARGET_VERSION = 1;
+  const row = database.prepare("PRAGMA user_version").get() as
+    | { user_version: number }
+    | undefined;
+  const current = row?.user_version ?? 0;
+  if (current >= TARGET_VERSION) return;
+
+  database.exec(`
+    UPDATE pairs
+    SET created_at = datetime(created_at, '+8 hours')
+    WHERE created_at IS NOT NULL;
+
+    UPDATE step_instances
+    SET started_at = datetime(started_at, '+8 hours')
+    WHERE started_at IS NOT NULL;
+
+    UPDATE step_instances
+    SET completed_at = datetime(completed_at, '+8 hours')
+    WHERE completed_at IS NOT NULL;
+  `);
+
+  database.exec(`PRAGMA user_version = ${TARGET_VERSION}`);
 }
 
 function migrateAddOwnerColumn(database: DatabaseSync) {
