@@ -1,18 +1,27 @@
 "use client";
 
 import { formatDateTime, formatDuration, teamLabel } from "@/lib/format";
-import type { PairWithSteps } from "@/lib/types";
+import { canCompleteStep } from "@/lib/permissions";
+import type { PairWithSteps, Role } from "@/lib/types";
 import { useState } from "react";
 import { PipelineProgressDots } from "./PipelineProgressDots";
 import { StepButton } from "./StepButton";
 
 type PairCardProps = {
   pair: PairWithSteps;
+  role: Role;
+  canDelete: boolean;
   onUpdated: () => void;
   highlighted?: boolean;
 };
 
-export function PairCard({ pair, onUpdated, highlighted }: PairCardProps) {
+export function PairCard({
+  pair,
+  role,
+  canDelete,
+  onUpdated,
+  highlighted,
+}: PairCardProps) {
   const [completing, setCompleting] = useState<number | null>(null);
   const [deleting, setDeleting] = useState(false);
 
@@ -96,14 +105,16 @@ export function PairCard({ pair, onUpdated, highlighted }: PairCardProps) {
         </div>
         <div className="flex items-center gap-2">
           {statusBadge}
-          <button
-            type="button"
-            onClick={handleDelete}
-            disabled={deleting}
-            className="rounded-lg px-2 py-1 text-xs text-slate-400 hover:bg-red-50 hover:text-red-600"
-          >
-            {deleting ? "删除中…" : "删除"}
-          </button>
+          {canDelete && (
+            <button
+              type="button"
+              onClick={handleDelete}
+              disabled={deleting}
+              className="rounded-lg px-2 py-1 text-xs text-slate-400 hover:bg-red-50 hover:text-red-600"
+            >
+              {deleting ? "删除中…" : "删除"}
+            </button>
+          )}
         </div>
       </header>
 
@@ -130,6 +141,7 @@ export function PairCard({ pair, onUpdated, highlighted }: PairCardProps) {
               switch1={pair.switch1}
               switch2={pair.switch2}
               isCurrent={pair.current_step_order === step.step_order}
+              canComplete={canCompleteStep(role, step.team)}
               onComplete={handleComplete}
               completing={completing}
             />

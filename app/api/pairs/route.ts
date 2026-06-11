@@ -1,4 +1,6 @@
+import { getSession } from "@/lib/auth";
 import { createPair, listPairs } from "@/lib/pairs";
+import { canManagePairs } from "@/lib/permissions";
 import type { PairFilter } from "@/lib/types";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -20,6 +22,13 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const session = getSession(request);
+    if (!canManagePairs(session.role)) {
+      return NextResponse.json(
+        { error: "无权限新建 pipeline，仅 cisco 账号可操作" },
+        { status: session.role === "guest" ? 401 : 403 }
+      );
+    }
     const body = (await request.json()) as {
       switch1?: string;
       switch2?: string;

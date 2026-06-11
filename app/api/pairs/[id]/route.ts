@@ -1,4 +1,6 @@
+import { getSession } from "@/lib/auth";
 import { deletePair, getPairById } from "@/lib/pairs";
+import { canManagePairs } from "@/lib/permissions";
 import { NextRequest, NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
@@ -21,8 +23,15 @@ export async function GET(_request: NextRequest, context: RouteContext) {
   }
 }
 
-export async function DELETE(_request: NextRequest, context: RouteContext) {
+export async function DELETE(request: NextRequest, context: RouteContext) {
   try {
+    const session = getSession(request);
+    if (!canManagePairs(session.role)) {
+      return NextResponse.json(
+        { error: "无权限删除 pipeline，仅 cisco 账号可操作" },
+        { status: session.role === "guest" ? 401 : 403 }
+      );
+    }
     const { id } = await context.params;
     deletePair(Number(id));
     return NextResponse.json({ ok: true });

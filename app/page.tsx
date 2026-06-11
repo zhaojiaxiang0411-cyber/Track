@@ -1,11 +1,14 @@
 "use client";
 
+import { AuthBar } from "@/components/AuthBar";
 import { CreatePairForm } from "@/components/CreatePairForm";
 import { PairCard } from "@/components/PairCard";
 import { PairFilterBar } from "@/components/PairFilter";
 import { PipelineOverview } from "@/components/PipelineOverview";
+import { useAuth } from "@/hooks/useAuth";
 import { usePairs } from "@/hooks/usePairs";
 import { teamLabel } from "@/lib/format";
+import { canManagePairs } from "@/lib/permissions";
 import type { PairFilter } from "@/lib/types";
 import { useCallback, useEffect, useState } from "react";
 
@@ -15,6 +18,8 @@ export default function HomePage() {
   const [pendingScrollId, setPendingScrollId] = useState<number | null>(null);
   const { pairs, allPairs, counts, loading, error, refresh, recentlyUpdated } =
     usePairs(filter);
+  const { user, loading: authLoading, login, logout } = useAuth();
+  const canManage = canManagePairs(user.role);
 
   const scrollToPair = useCallback((pairId: number) => {
     const el = document.getElementById(`pair-${pairId}`);
@@ -56,12 +61,22 @@ export default function HomePage() {
   return (
     <main className="mx-auto min-h-screen max-w-7xl px-4 py-8 sm:px-6">
       <header className="mb-8">
-        <h1 className="text-2xl font-bold text-slate-900 sm:text-3xl">
-          ACI Leaf Refresh Pipeline
-        </h1>
-        <p className="mt-1 text-sm text-slate-500">
-          {teamLabel("A")}（蓝）与 {teamLabel("B")}（橙）协作跟踪 · 实时同步
-        </p>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900 sm:text-3xl">
+              ACI Leaf Refresh Pipeline
+            </h1>
+            <p className="mt-1 text-sm text-slate-500">
+              {teamLabel("A")}（蓝）与 {teamLabel("B")}（橙）协作跟踪 · 实时同步
+            </p>
+          </div>
+          <AuthBar
+            user={user}
+            loading={authLoading}
+            onLogin={login}
+            onLogout={logout}
+          />
+        </div>
         <div className="mt-4 flex flex-wrap items-center gap-4 text-xs text-slate-500">
           <span className="flex items-center gap-1.5">
             <span className="inline-block h-3 w-3 rounded bg-blue-600" />
@@ -75,7 +90,7 @@ export default function HomePage() {
       </header>
 
       <section className="mb-6 space-y-4">
-        <CreatePairForm onCreated={refresh} />
+        {canManage && <CreatePairForm onCreated={refresh} />}
         <div className="flex flex-wrap items-center justify-between gap-4">
           <PairFilterBar value={filter} onChange={setFilter} counts={counts} />
           <a
@@ -115,6 +130,8 @@ export default function HomePage() {
           <PairCard
             key={pair.id}
             pair={pair}
+            role={user.role}
+            canDelete={canManage}
             onUpdated={refresh}
             highlighted={highlightPairId === pair.id}
           />

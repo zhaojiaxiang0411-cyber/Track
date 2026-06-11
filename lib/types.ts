@@ -39,3 +39,11 @@ export interface PairWithSteps extends Pair {
 }
 
 export type PairFilter = "all" | "waiting_a" | "waiting_b" | "completed";
+
+// admin = cisco（全部权限）；homison = 仅 homison 步骤；guest = 未登录只读
+export type Role = "admin" | "homison" | "guest";
+
+export interface SessionUser {
+  username: string;
+  role: Role;
+}

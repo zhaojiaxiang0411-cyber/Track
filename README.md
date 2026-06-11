@@ -11,6 +11,34 @@
 - 筛选：全部 / 等 cisco / 等 homison / 已完成
 - CSV 导出全部时间记录
 
+## 登录与权限
+
+| 身份 | 默认账号 | 点 homison 步骤 | 点 cisco 步骤 | 导出 CSV | 删除 pipeline | 新建 pipeline |
+|------|----------|:---:|:---:|:---:|:---:|:---:|
+| cisco（管理员） | `cisco` / `cisco` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| homison | `homison` / `homison` | ✅ | ❌ | ✅ | ❌ | ❌ |
+| 未登录（游客） | — | ❌ | ❌ | ✅ | ❌ | ❌ |
+
+- 权限在**服务端 API 强制校验**，前端按钮的禁用/隐藏仅为体验优化，直接调用 API 同样会被拦截（401/403）。
+- 会话用 HMAC 签名的 `httpOnly` Cookie 保存，默认有效期 12 小时。
+
+### 可选环境变量（生产建议设置）
+
+| 变量 | 说明 | 默认 |
+|------|------|------|
+| `AUTH_SESSION_SECRET` | 会话签名密钥，生产务必设为高熵随机值 | 内置开发密钥（不安全） |
+| `AUTH_CISCO_PASSWORD` | 覆盖 cisco 账号密码 | `cisco` |
+| `AUTH_HOMISON_PASSWORD` | 覆盖 homison 账号密码 | `homison` |
+| `AUTH_COOKIE_SECURE` | 设为 `true` 时 Cookie 仅经 HTTPS 下发（http 内网部署保持默认） | `false` |
+
+```bash
+# 示例：生产环境覆盖密钥与密码
+AUTH_SESSION_SECRET="$(openssl rand -base64 32)" \
+AUTH_CISCO_PASSWORD='强密码1' \
+AUTH_HOMISON_PASSWORD='强密码2' \
+npm start
+```
+
 ## 环境要求
 
 - Node.js 22.5+（使用内置 `node:sqlite`，无需 Xcode 编译工具）
