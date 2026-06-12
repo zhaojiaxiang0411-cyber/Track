@@ -1,9 +1,16 @@
 import { addSseClient, getClientCount, removeSseClient } from "@/lib/events";
+import { getSession } from "@/lib/auth";
+import { NextRequest, NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const session = getSession(request);
+  if (session.role === "guest") {
+    return NextResponse.json({ error: "请先登录" }, { status: 401 });
+  }
+
   let clientId: number | null = null;
 
   const stream = new ReadableStream<Uint8Array>({

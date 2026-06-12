@@ -20,18 +20,25 @@ export function nowLocalString(): string {
   );
 }
 
+export function parseLocalTimeMs(value: string): number {
+  const match = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/.exec(value);
+  if (!match) return new Date(value).getTime();
+  const [, year, month, day, hour, minute, second] = match;
+  return new Date(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    Number(hour),
+    Number(minute),
+    Number(second)
+  ).getTime();
+}
+
 export function formatDateTime(iso: string | null): string {
   if (!iso) return "—";
-  const date = new Date(iso.includes("T") ? iso : iso.replace(" ", "T"));
-  if (Number.isNaN(date.getTime())) return iso;
-  return date.toLocaleString("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  });
+  const match = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}:\d{2}:\d{2})/.exec(iso);
+  if (!match) return iso;
+  return `${match[2]}/${match[3]} ${match[4]}`;
 }
 
 export function formatDuration(seconds: number | null): string {

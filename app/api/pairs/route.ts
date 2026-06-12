@@ -8,6 +8,11 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   try {
+    const session = getSession(request);
+    if (session.role === "guest") {
+      return NextResponse.json({ error: "请先登录" }, { status: 401 });
+    }
+
     const filter = (request.nextUrl.searchParams.get("filter") ??
       "all") as PairFilter;
     const pairs = listPairs(filter);

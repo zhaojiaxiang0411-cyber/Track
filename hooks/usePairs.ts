@@ -18,7 +18,7 @@ function filterPairs(all: PairWithSteps[], filter: PairFilter): PairWithSteps[] 
   }
 }
 
-export function usePairs(filter: PairFilter) {
+export function usePairs(filter: PairFilter, enabled: boolean) {
   const [allPairs, setAllPairs] = useState<PairWithSteps[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -53,6 +53,13 @@ export function usePairs(filter: PairFilter) {
   }, []);
 
   const fetchPairs = useCallback(async () => {
+    if (!enabled) {
+      setAllPairs([]);
+      setError(null);
+      setLoading(false);
+      return;
+    }
+
     try {
       const res = await fetch("/api/pairs?filter=all", {
         cache: "no-store",
@@ -69,7 +76,7 @@ export function usePairs(filter: PairFilter) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [enabled]);
 
   const pairs = useMemo(
     () => filterPairs(allPairs, filter),
@@ -87,11 +94,17 @@ export function usePairs(filter: PairFilter) {
   );
 
   useEffect(() => {
+    if (!enabled) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     fetchPairs();
-  }, [fetchPairs]);
+  }, [enabled, fetchPairs]);
 
   useEffect(() => {
+    if (!enabled) return;
+
     const source = new EventSource("/api/events");
     const timers = hintTimers.current;
 
@@ -115,7 +128,7 @@ export function usePairs(filter: PairFilter) {
       for (const timer of timers.values()) clearTimeout(timer);
       timers.clear();
     };
-  }, [fetchPairs, markRecentlyUpdated]);
+  }, [enabled, fetchPairs, markRecentlyUpdated]);
 
   return {
     pairs,
