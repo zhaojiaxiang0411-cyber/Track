@@ -9,6 +9,11 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 export async function GET(_request: NextRequest, context: RouteContext) {
   try {
+    const session = getSession(_request);
+    if (session.role === "guest") {
+      return NextResponse.json({ error: "请先登录" }, { status: 401 });
+    }
+
     const { id } = await context.params;
     const pair = getPairById(Number(id));
     if (!pair) {

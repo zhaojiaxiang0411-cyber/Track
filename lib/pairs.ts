@@ -1,7 +1,7 @@
 import { getDb, runTransaction } from "./db";
 import { broadcast } from "./events";
 import { PIPELINE_STEPS, TOTAL_STEPS, resolveStepLabel } from "./pipeline";
-import { nowLocalString, teamLabel } from "./format";
+import { nowLocalString, parseLocalTimeMs, teamLabel } from "./format";
 import type { Pair, PairFilter, PairWithSteps, StepInstance, Team } from "./types";
 
 function rowToPair(row: Record<string, unknown>): Pair {
@@ -43,8 +43,8 @@ function enrichPair(pair: Pair, steps: StepInstance[]): PairWithSteps {
   const baseTime =
     snapshot?.completed_at ?? mwStart?.completed_at ?? pair.created_at;
   if (lastCompleted?.completed_at && lastCompleted.step_order > EXCLUDED_LAST_ORDER) {
-    const start = new Date(baseTime).getTime();
-    const end = new Date(lastCompleted.completed_at).getTime();
+    const start = parseLocalTimeMs(baseTime);
+    const end = parseLocalTimeMs(lastCompleted.completed_at);
     totalDuration = Math.max(0, Math.round((end - start) / 1000));
   }
 
@@ -182,7 +182,7 @@ export function completeStep(pairId: number, stepOrder: number): PairWithSteps {
   const durationSec = Math.max(
     0,
     Math.round(
-      (new Date(completedAt).getTime() - new Date(startedAt).getTime()) / 1000
+      (parseLocalTimeMs(completedAt) - parseLocalTimeMs(startedAt)) / 1000
     )
   );
 
