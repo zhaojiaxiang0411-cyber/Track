@@ -3,6 +3,7 @@
 import { formatDateTime, formatDuration, teamLabel } from "@/lib/format";
 import { PIPELINE_STEPS, resolveStepLabel } from "@/lib/pipeline";
 import type { StepInstance } from "@/lib/types";
+import { LiveDuration } from "./LiveDuration";
 
 type StepButtonProps = {
   step: StepInstance;
@@ -41,6 +42,9 @@ export function StepButton({
   // 当前步骤但无权操作（如 homison 看到 cisco 的步骤、或未登录）
   const isCurrentLocked = isCurrent && !isDone && !canComplete;
   const isActionable = isCurrent && !isDone && canComplete;
+  // 正在进行中的步骤显示实时耗时（排除步骤 1/2，与总耗时统计口径一致）
+  const showLiveDuration =
+    isCurrent && !isDone && step.step_order > 2 && Boolean(step.started_at);
 
   let className =
     "relative flex min-w-[7.5rem] flex-col rounded-lg border px-2 py-2 text-left text-xs transition-all ";
@@ -100,6 +104,11 @@ export function StepButton({
           {step.step_order !== 1 && step.step_order !== 2 && step.duration_sec !== null && (
             <span className="ml-1">({formatDuration(step.duration_sec)})</span>
           )}
+        </span>
+      )}
+      {showLiveDuration && !isBusy && (
+        <span className="mt-1 text-[10px] font-medium opacity-90">
+          ⏱ 已进行 <LiveDuration startedAt={step.started_at!} />
         </span>
       )}
       {isBusy && (

@@ -44,6 +44,39 @@ function initSchema(database: DatabaseSync) {
   migrateStepLabels(database);
   migrateRemoveCheckFaultSteps(database);
   migrateShiftLegacyUtcTimestamps(database);
+  migrateAddLabelSw2(database);
+}
+
+// 一次性迁移：为 SW2 在 Decommission 之前补一个 Label 步骤（与 SW1 对称）。
+// SW2 后续步骤已在 migrateRemoveCheckFaultSteps 中顺移到 10-14，step_order = 9 已空出。
+// 对于 SW2 已 Decommission 的历史 pair，将补入的 Label 直接标记为已完成，
+// 以免把已结束的流程重新置为待办；其余 pair 则保留为待办，由 B 组执行。
+// 用 user_version 保证只执行一次。
+function migrateAddLabelSw2(database: DatabaseSync) {
+  const TARGET_VERSION = 2;
+  const row = database.prepare("PRAGMA user_version").get() as
+    | { user_version: number }
+    | undefined;
+  const current = row?.user_version ?? 0;
+  if (current >= TARGET_VERSION) return;
+
+  database.exec(`
+    INSERT INTO step_instances
+      (pair_id, step_order, action_key, team, label, started_at, completed_at, duration_sec)
+    SELECT
+      d.pair_id, 9, 'label_sw2', 'B', 'Label',
+      CASE WHEN d.completed_at IS NOT NULL THEN COALESCE(d.started_at, d.completed_at) ELSE NULL END,
+      CASE WHEN d.completed_at IS NOT NULL THEN COALESCE(d.started_at, d.completed_at) ELSE NULL END,
+      CASE WHEN d.completed_at IS NOT NULL THEN 0 ELSE NULL END
+    FROM step_instances d
+    WHERE d.action_key = 'decomm_sw2'
+      AND NOT EXISTS (
+        SELECT 1 FROM step_instances l
+        WHERE l.pair_id = d.pair_id AND l.action_key = 'label_sw2'
+      );
+  `);
+
+  database.exec(`PRAGMA user_version = ${TARGET_VERSION}`);
 }
 
 // 一次性迁移：早期版本把时间以 UTC 存入（datetime('now') / toISOString()），
@@ -117,11 +150,12 @@ function migrateRemoveCheckFaultSteps(database: DatabaseSync) {
 
   const reorder: Array<[string, number]> = [
     ["post_check_sw1", 8],
-    ["decomm_sw2", 9],
-    ["uplink_only_sw2", 10],
-    ["commission_sw2", 11],
-    ["downlink_sw2", 12],
-    ["post_check_sw2", 13],
+    ["label_sw2", 9],
+    ["decomm_sw2", 10],
+    ["uplink_only_sw2", 11],
+    ["commission_sw2", 12],
+    ["downlink_sw2", 13],
+    ["post_check_sw2", 14],
   ];
 
   const toTemp = database.prepare(

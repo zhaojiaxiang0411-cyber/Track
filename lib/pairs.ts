@@ -227,8 +227,12 @@ export function buildExportCsv(): string {
     "Pair,Switch1,Switch2,StepOrder,Action,Team,Phase,StartedAt,CompletedAt,DurationSec,PairStatus";
   const rows: string[] = [header];
 
+  // Pipeline Start（步骤 1）与 Snapshot（步骤 2）不计入导出
+  const EXCLUDED_STEP_ORDERS = new Set([1, 2]);
+
   for (const pair of pairs) {
     for (const step of pair.steps) {
+      if (EXCLUDED_STEP_ORDERS.has(step.step_order)) continue;
       const template = PIPELINE_STEPS.find((t) => t.order === step.step_order);
       const phase = template?.phase ?? "";
       rows.push(

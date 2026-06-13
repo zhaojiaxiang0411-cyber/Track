@@ -4,6 +4,7 @@ import { formatDateTime, formatDuration, teamLabel } from "@/lib/format";
 import { canCompleteStep } from "@/lib/permissions";
 import type { PairWithSteps, Role } from "@/lib/types";
 import { useState } from "react";
+import { LiveDuration } from "./LiveDuration";
 import { PipelineProgressDots } from "./PipelineProgressDots";
 import { StepButton } from "./StepButton";
 
@@ -60,6 +61,16 @@ export function PairCard({
     }
   };
 
+  const currentStep =
+    pair.current_step_order !== null
+      ? pair.steps.find((s) => s.step_order === pair.current_step_order)
+      : undefined;
+  // 进行中的耗时仅对步骤 3 及之后显示（排除 Pipeline Start / Snapshot）
+  const liveStep =
+    currentStep && currentStep.step_order > 2 && currentStep.started_at
+      ? currentStep
+      : undefined;
+
   const statusBadge =
     pair.status === "completed" ? (
       <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
@@ -68,10 +79,20 @@ export function PairCard({
     ) : pair.waiting_team === "A" ? (
       <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-800">
         等待 {teamLabel("A")} · 步骤 #{pair.current_step_order}
+        {liveStep && (
+          <span className="ml-1 font-normal">
+            · 已进行 <LiveDuration startedAt={liveStep.started_at!} />
+          </span>
+        )}
       </span>
     ) : pair.waiting_team === "B" ? (
       <span className="rounded-full bg-orange-100 px-3 py-1 text-xs font-semibold text-orange-800">
         等待 {teamLabel("B")} · 步骤 #{pair.current_step_order}
+        {liveStep && (
+          <span className="ml-1 font-normal">
+            · 已进行 <LiveDuration startedAt={liveStep.started_at!} />
+          </span>
+        )}
       </span>
     ) : null;
 

@@ -1,6 +1,10 @@
 "use client";
 
-import { resolveStepLabel, resolveStepSwitch } from "@/lib/pipeline";
+import {
+  resolveStepLabel,
+  resolveStepPhase,
+  resolveStepSwitch,
+} from "@/lib/pipeline";
 import { teamLabel, formatDuration } from "@/lib/format";
 import type { StepInstance } from "@/lib/types";
 
@@ -68,11 +72,18 @@ export function PipelineProgressDots({
         role="img"
         aria-label={`进度 ${doneCount}/${total}`}
       >
-        {steps.map((step) => {
+        {steps.map((step, index) => {
           const isDone = Boolean(step.completed_at);
           const isCurrent = currentStepOrder === step.step_order;
           const label = resolveStepLabel(step.step_order, step.label);
           const stepSwitch = resolveStepSwitch(step.step_order, switch1, switch2);
+
+          // 阶段边界（全局→SW1、SW1→SW2）插入分隔线
+          const prevStep = index > 0 ? steps[index - 1] : null;
+          const showPhaseDivider =
+            prevStep !== null &&
+            resolveStepPhase(prevStep.step_order) !==
+              resolveStepPhase(step.step_order);
 
           const statusText = isDone
             ? "已完成"
@@ -86,10 +97,14 @@ export function PipelineProgressDots({
           } · ${statusText}`;
 
           return (
-            <span
-              key={step.id}
-              className="group/dot relative inline-flex shrink-0"
-            >
+            <span key={step.id} className="inline-flex items-center">
+              {showPhaseDivider && (
+                <span
+                  aria-hidden="true"
+                  className={`${compact ? "mx-1 h-2.5" : "mx-1.5 h-3"} w-px shrink-0 rounded-full bg-slate-300`}
+                />
+              )}
+              <span className="group/dot relative inline-flex shrink-0">
               <span
                 className={dotClass(step, isDone, isCurrent, compact)}
                 style={
@@ -139,6 +154,7 @@ export function PipelineProgressDots({
                   </span>
                 </span>
               )}
+              </span>
             </span>
           );
         })}
