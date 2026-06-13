@@ -11,7 +11,6 @@ function rowToPair(row: Record<string, unknown>): Pair {
     switch2: row.switch2 as string,
     owner: (row.owner as string | null) ?? null,
     status: row.status as Pair["status"],
-    operating: Boolean(row.operating),
     created_at: row.created_at as string,
   };
 }
@@ -76,10 +75,6 @@ export function listPairs(filter: PairFilter = "all"): PairWithSteps[] {
   });
 
   switch (filter) {
-    case "operating":
-      return enriched.filter((p) => p.status !== "completed" && p.operating);
-    case "on_hold":
-      return enriched.filter((p) => p.status !== "completed" && !p.operating);
     case "waiting_a":
       return enriched.filter((p) => p.waiting_team === "A");
     case "waiting_b":
@@ -126,7 +121,7 @@ export function createPair(
 
   const db = getDb();
   const insertPair = db.prepare(
-    "INSERT INTO pairs (switch1, switch2, owner, operating, created_at) VALUES (?, ?, ?, 0, ?)"
+    "INSERT INTO pairs (switch1, switch2, owner, created_at) VALUES (?, ?, ?, ?)"
   );
   const insertStep = db.prepare(`
     INSERT INTO step_instances (pair_id, step_order, action_key, team, label, started_at)
@@ -164,10 +159,6 @@ export function completeStep(pairId: number, stepOrder: number): PairWithSteps {
 
   if (pair.status === "completed") {
     throw new Error("该 Pair 已完成，无法继续操作");
-  }
-
-  if (!pair.operating) {
-    throw new Error("请先点击『开始操作』后再完成步骤");
   }
 
   if (stepOrder < 1 || stepOrder > TOTAL_STEPS) {
@@ -209,12 +200,10 @@ export function completeStep(pairId: number, stepOrder: number): PairWithSteps {
       db.prepare(`
         UPDATE step_instances SET started_at = ? WHERE pair_id = ? AND step_order = ?
       `).run(completedAt, pairId, nextOrder);
-      // 推进到下一个 task 后自动回到"挂起"，需重新点"开始操作"才能继续完成
-      db.prepare("UPDATE pairs SET operating = 0 WHERE id = ?").run(pairId);
     } else {
-      db.prepare(
-        "UPDATE pairs SET status = 'completed', operating = 0 WHERE id = ?"
-      ).run(pairId);
+      db.prepare("UPDATE pairs SET status = 'completed' WHERE id = ?").run(
+        pairId
+      );
     }
   });
 
@@ -232,33 +221,10 @@ export function deletePair(pairId: number): void {
   broadcast("pair_updated", { pairId, action: "deleted" });
 }
 
-export function setOperating(
-  pairId: number,
-  operating: boolean
-): PairWithSteps {
-  const pair = getPairById(pairId);
-  if (!pair) throw new Error("Pair 不存在");
-  if (pair.status === "completed") {
-    throw new Error("该 Pair 已完成，无需标记操作状态");
-  }
-
-  const db = getDb();
-  db.prepare("UPDATE pairs SET operating = ? WHERE id = ?").run(
-    operating ? 1 : 0,
-    pairId
-  );
-
-  const updated = getPairById(pairId);
-  if (!updated) throw new Error("更新失败");
-
-  broadcast("pair_updated", { pairId, action: "operating_changed", operating });
-  return updated;
-}
-
 export function buildExportCsv(): string {
   const pairs = listPairs("all");
   const header =
-    "Pair,Switch1,Switch2,StepOrder,Action,Team,Phase,StartedAt,CompletedAt,DurationSec,PairStatus,Operating";
+    "Pair,Switch1,Switch2,StepOrder,Action,Team,Phase,StartedAt,CompletedAt,DurationSec,PairStatus";
   const rows: string[] = [header];
 
   for (const pair of pairs) {
@@ -278,7 +244,6 @@ export function buildExportCsv(): string {
           step.completed_at ?? "",
           step.duration_sec ?? "",
           pair.status,
-          pair.operating ? "operating" : "on_hold",
         ].join(",")
       );
     }

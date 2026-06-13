@@ -20,20 +20,6 @@ export function PipelineOverview({
   const waitingB = pairs.filter((p) => p.waiting_team === "B").length;
   const completed = pairs.filter((p) => p.status === "completed").length;
   const inProgress = total - completed;
-  const operating = pairs.filter(
-    (p) => p.status !== "completed" && p.operating
-  ).length;
-  const onHold = pairs.filter(
-    (p) => p.status !== "completed" && !p.operating
-  ).length;
-
-  // 正在操作的（未完成）置顶，便于聚焦实际推进中的 pipeline；
-  // 其余保持原有顺序（id 倒序）。
-  const sortedPairs = [...pairs].sort((a, b) => {
-    const aOp = a.status !== "completed" && a.operating ? 1 : 0;
-    const bOp = b.status !== "completed" && b.operating ? 1 : 0;
-    return bOp - aOp;
-  });
 
   if (total === 0) return null;
 
@@ -44,8 +30,6 @@ export function PipelineOverview({
         <div className="flex flex-wrap gap-3 text-xs">
           <StatBadge label="全部" count={total} color="slate" />
           <StatBadge label="进行中" count={inProgress} color="amber" />
-          <StatBadge label="正在操作" count={operating} color="green" />
-          <StatBadge label="队列中" count={onHold} color="amber" />
           <StatBadge
             label={`等 ${teamLabel("A")}`}
             count={waitingA}
@@ -61,7 +45,7 @@ export function PipelineOverview({
       </div>
 
       <div className="space-y-2">
-        {sortedPairs.map((pair) => {
+        {pairs.map((pair) => {
           const justUpdated = recentlyUpdated?.has(pair.id) ?? false;
           return (
           <button
@@ -83,36 +67,6 @@ export function PipelineOverview({
                   {pair.owner}
                 </span>
               )}
-            </span>
-            <span className="flex w-16 shrink-0 justify-start">
-              {pair.status !== "completed" &&
-                (pair.operating ? (
-                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-semibold text-green-700">
-                    <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
-                    操作中
-                  </span>
-                ) : (
-                  <span
-                    className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                      pair.waiting_team === "A"
-                        ? "bg-blue-100 text-blue-700"
-                        : pair.waiting_team === "B"
-                          ? "bg-orange-100 text-orange-700"
-                          : "bg-amber-100 text-amber-700"
-                    }`}
-                  >
-                    <span
-                      className={`inline-block h-1.5 w-1.5 rounded-full ${
-                        pair.waiting_team === "A"
-                          ? "bg-blue-500"
-                          : pair.waiting_team === "B"
-                            ? "bg-orange-500"
-                            : "bg-amber-500"
-                      }`}
-                    />
-                    队列中
-                  </span>
-                ))}
             </span>
             <PipelineProgressDots
               steps={pair.steps}
@@ -155,7 +109,7 @@ function StatBadge({
 }: {
   label: string;
   count: number;
-  color: "slate" | "amber" | "blue" | "orange" | "emerald" | "green";
+  color: "slate" | "amber" | "blue" | "orange" | "emerald";
 }) {
   const colors = {
     slate: "bg-slate-100 text-slate-700",
@@ -163,7 +117,6 @@ function StatBadge({
     blue: "bg-blue-100 text-blue-800",
     orange: "bg-orange-100 text-orange-800",
     emerald: "bg-emerald-100 text-emerald-800",
-    green: "bg-green-100 text-green-800",
   };
 
   return (
@@ -178,11 +131,9 @@ function StatBadge({
               ? "bg-orange-600"
               : color === "emerald"
                 ? "bg-emerald-600"
-                : color === "green"
-                  ? "bg-green-600"
-                  : color === "amber"
-                    ? "bg-amber-500"
-                    : "bg-slate-400"
+                : color === "amber"
+                  ? "bg-amber-500"
+                  : "bg-slate-400"
         }`}
       />
       {label}

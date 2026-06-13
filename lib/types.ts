@@ -16,8 +16,6 @@ export interface Pair {
   switch2: string;
   owner: string | null;
   status: PairStatus;
-  // 是否正在被操作（true）还是挂起/排队等待（false）。与 status 正交。
-  operating: boolean;
   created_at: string;
 }
 
@@ -40,13 +38,7 @@ export interface PairWithSteps extends Pair {
   total_duration_sec: number | null;
 }
 
-export type PairFilter =
-  | "all"
-  | "operating"
-  | "on_hold"
-  | "waiting_a"
-  | "waiting_b"
-  | "completed";
+export type PairFilter = "all" | "waiting_a" | "waiting_b" | "completed";
 
 // admin = cisco（全部权限）；homison = 仅 homison 步骤；guest = 未登录只读
 export type Role = "admin" | "homison" | "guest";

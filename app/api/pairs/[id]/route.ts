@@ -1,6 +1,6 @@
 import { getSession } from "@/lib/auth";
-import { deletePair, getPairById, setOperating } from "@/lib/pairs";
-import { canManagePairs, canToggleOperating } from "@/lib/permissions";
+import { deletePair, getPairById } from "@/lib/pairs";
+import { canManagePairs } from "@/lib/permissions";
 import { NextRequest, NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
@@ -24,35 +24,6 @@ export async function GET(_request: NextRequest, context: RouteContext) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "获取失败" },
       { status: 500 }
-    );
-  }
-}
-
-export async function PATCH(request: NextRequest, context: RouteContext) {
-  try {
-    const session = getSession(request);
-    if (!canToggleOperating(session.role)) {
-      return NextResponse.json(
-        { error: "无权限操作，请先登录" },
-        { status: 401 }
-      );
-    }
-
-    const body = (await request.json()) as { operating?: unknown };
-    if (typeof body.operating !== "boolean") {
-      return NextResponse.json(
-        { error: "operating 必须为布尔值" },
-        { status: 400 }
-      );
-    }
-
-    const { id } = await context.params;
-    const pair = setOperating(Number(id), body.operating);
-    return NextResponse.json({ pair });
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "更新失败" },
-      { status: 400 }
     );
   }
 }

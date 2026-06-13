@@ -17,8 +17,3 @@ export function canCompleteStep(role: Role, team: Team): boolean {
 export function canManagePairs(role: Role): boolean {
   return role === "admin";
 }
-
-// 能否切换"正在操作 / 挂起"标记：任意登录用户（cisco 与 homison），游客不可
-export function canToggleOperating(role: Role): boolean {
-  return role !== "guest";
-}
