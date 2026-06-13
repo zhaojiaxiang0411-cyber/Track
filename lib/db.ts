@@ -21,6 +21,7 @@ function initSchema(database: DatabaseSync) {
       switch2 TEXT NOT NULL,
       owner TEXT,
       status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'completed')),
+      operating INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
     );
 
@@ -41,8 +42,10 @@ function initSchema(database: DatabaseSync) {
     CREATE INDEX IF NOT EXISTS idx_step_instances_pair_id ON step_instances(pair_id);
   `);
   migrateAddOwnerColumn(database);
+  migrateAddOperatingColumn(database);
   migrateStepLabels(database);
   migrateRemoveCheckFaultSteps(database);
+  migrateAddSw2Label(database);
   migrateShiftLegacyUtcTimestamps(database);
 }
 
@@ -85,6 +88,18 @@ function migrateAddOwnerColumn(database: DatabaseSync) {
   }
 }
 
+function migrateAddOperatingColumn(database: DatabaseSync) {
+  const columns = database
+    .prepare("PRAGMA table_info(pairs)")
+    .all() as Array<{ name: string }>;
+  const hasOperating = columns.some((col) => col.name === "operating");
+  if (!hasOperating) {
+    database.exec(
+      "ALTER TABLE pairs ADD COLUMN operating INTEGER NOT NULL DEFAULT 0"
+    );
+  }
+}
+
 function migrateStepLabels(database: DatabaseSync) {
   database.exec(`
     UPDATE step_instances
@@ -115,13 +130,16 @@ function migrateRemoveCheckFaultSteps(database: DatabaseSync) {
     WHERE action_key IN ('check_fault_sw1', 'check_fault_sw2');
   `);
 
+  // 目标序号对应 14 步新布局：SW2 在 Decommission 前新增 label_sw2(order 9)，
+  // 其余 SW2 步骤整体后移。label_sw2 本身的插入见 migrateAddSw2Label。
   const reorder: Array<[string, number]> = [
     ["post_check_sw1", 8],
-    ["decomm_sw2", 9],
-    ["uplink_only_sw2", 10],
-    ["commission_sw2", 11],
-    ["downlink_sw2", 12],
-    ["post_check_sw2", 13],
+    ["label_sw2", 9],
+    ["decomm_sw2", 10],
+    ["uplink_only_sw2", 11],
+    ["commission_sw2", 12],
+    ["downlink_sw2", 13],
+    ["post_check_sw2", 14],
   ];
 
   const toTemp = database.prepare(
@@ -137,6 +155,31 @@ function migrateRemoveCheckFaultSteps(database: DatabaseSync) {
   for (const [actionKey, order] of reorder) {
     toFinal.run(order, actionKey);
   }
+}
+
+// 幂等迁移：为已有 pair 在 SW2 阶段补插 Decommission 之前的 Label 步骤（order 9）。
+// migrateRemoveCheckFaultSteps 已把原 SW2 步骤后移，order 9 此时为空位。
+// 智能处理已存在数据：
+//   - 尚未推进到 SW2（decomm_sw2 未开始）→ Label 置为待办（时间为空）；
+//   - 已开始/已完成 SW2 Decommission → Label 自动标记为已完成，沿用 decomm 的开始时刻，
+//     避免把已完成或进行中的流程重新打开为「未完成」。
+// 通过 NOT EXISTS 守卫保证可重复执行而不重复插入。
+function migrateAddSw2Label(database: DatabaseSync) {
+  database.exec(`
+    INSERT INTO step_instances
+      (pair_id, step_order, action_key, team, label, started_at, completed_at, duration_sec)
+    SELECT
+      d.pair_id, 9, 'label_sw2', 'B', 'Label',
+      d.started_at,
+      CASE WHEN d.started_at IS NOT NULL THEN d.started_at ELSE NULL END,
+      CASE WHEN d.started_at IS NOT NULL THEN 0 ELSE NULL END
+    FROM step_instances d
+    WHERE d.action_key = 'decomm_sw2'
+      AND NOT EXISTS (
+        SELECT 1 FROM step_instances l
+        WHERE l.pair_id = d.pair_id AND l.action_key = 'label_sw2'
+      );
+  `);
 }
 
 export function getDb(): DatabaseSync {

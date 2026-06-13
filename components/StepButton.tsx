@@ -10,6 +10,8 @@ type StepButtonProps = {
   switch2: string;
   isCurrent: boolean;
   canComplete: boolean;
+  // pipeline 是否处于"正在操作"。仅在 operating 时当前步骤才可点击完成。
+  pairOperating: boolean;
   onComplete: (stepOrder: number) => Promise<void>;
   completing: number | null;
   id?: string;
@@ -30,6 +32,7 @@ export function StepButton({
   switch2,
   isCurrent,
   canComplete,
+  pairOperating,
   onComplete,
   completing,
   id,
@@ -39,8 +42,11 @@ export function StepButton({
   const isBusy = completing === step.step_order;
   const displayLabel = resolveStepLabel(step.step_order, step.label);
   // 当前步骤但无权操作（如 homison 看到 cisco 的步骤、或未登录）
-  const isCurrentLocked = isCurrent && !isDone && !canComplete;
-  const isActionable = isCurrent && !isDone && canComplete;
+  const isRoleLocked = isCurrent && !isDone && !canComplete;
+  // 有权操作但 pipeline 处于挂起：需先点"开始操作"
+  const isOnHoldLocked =
+    isCurrent && !isDone && canComplete && !pairOperating;
+  const isActionable = isCurrent && !isDone && canComplete && pairOperating;
 
   let className =
     "relative flex min-w-[7.5rem] flex-col rounded-lg border px-2 py-2 text-left text-xs transition-all ";
@@ -53,7 +59,11 @@ export function StepButton({
     className += isTeamA
       ? "animate-pulse border-2 border-blue-500 bg-blue-100 text-blue-900 shadow-md cursor-pointer"
       : "animate-pulse border-2 border-orange-500 bg-orange-100 text-orange-900 shadow-md cursor-pointer";
-  } else if (isCurrentLocked) {
+  } else if (isOnHoldLocked) {
+    className += isTeamA
+      ? "border-2 border-dashed border-blue-300 bg-blue-50 text-blue-400 cursor-not-allowed"
+      : "border-2 border-dashed border-orange-300 bg-orange-50 text-orange-400 cursor-not-allowed";
+  } else if (isRoleLocked) {
     className += isTeamA
       ? "border-2 border-dashed border-blue-300 bg-blue-50 text-blue-400 cursor-not-allowed"
       : "border-2 border-dashed border-orange-300 bg-orange-50 text-orange-400 cursor-not-allowed";
@@ -80,11 +90,13 @@ export function StepButton({
       title={
         isActionable
           ? `点击完成（${teamLabel(step.team)}）`
-          : isCurrentLocked
-            ? `无权操作：该步骤需 ${teamLabel(step.team)} 账号`
-            : isDone
-              ? `已完成 ${formatDateTime(step.completed_at)}`
-              : "等待前序步骤"
+          : isOnHoldLocked
+            ? "请先点击『开始操作』再完成此步骤"
+            : isRoleLocked
+              ? `无权操作：该步骤需 ${teamLabel(step.team)} 账号`
+              : isDone
+                ? `已完成 ${formatDateTime(step.completed_at)}`
+                : "等待前序步骤"
       }
     >
       <span className="mb-0.5 font-mono text-[10px] opacity-80">
@@ -105,8 +117,11 @@ export function StepButton({
       {isBusy && (
         <span className="mt-1 text-[10px] italic opacity-80">提交中…</span>
       )}
-      {isCurrentLocked && (
+      {isRoleLocked && (
         <span className="mt-1 text-[10px] opacity-90">🔒 需 {teamLabel(step.team)}</span>
+      )}
+      {isOnHoldLocked && (
+        <span className="mt-1 text-[10px] opacity-90">⏸ 待开始操作</span>
       )}
     </button>
   );

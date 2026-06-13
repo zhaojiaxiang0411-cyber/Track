@@ -21,23 +21,24 @@ export const PIPELINE_STEPS: PipelineStepTemplate[] = [
   },
   { order: 7, actionKey: "downlink_sw1", label: "Plugin Downlinks", team: "B", phase: "SW1" },
   { order: 8, actionKey: "post_check_sw1", label: "Post Check", team: "A", phase: "SW1" },
-  { order: 9, actionKey: "decomm_sw2", label: "Decommission", team: "A", phase: "SW2" },
+  { order: 9, actionKey: "label_sw2", label: "Label", team: "B", phase: "SW2" },
+  { order: 10, actionKey: "decomm_sw2", label: "Decommission", team: "A", phase: "SW2" },
   {
-    order: 10,
+    order: 11,
     actionKey: "uplink_only_sw2",
     label: "Rack and Plugin Uplinks",
     team: "B",
     phase: "SW2",
   },
   {
-    order: 11,
+    order: 12,
     actionKey: "commission_sw2",
     label: "Register",
     team: "A",
     phase: "SW2",
   },
-  { order: 12, actionKey: "downlink_sw2", label: "Plugin Downlinks", team: "B", phase: "SW2" },
-  { order: 13, actionKey: "post_check_sw2", label: "Post Check", team: "A", phase: "SW2" },
+  { order: 13, actionKey: "downlink_sw2", label: "Plugin Downlinks", team: "B", phase: "SW2" },
+  { order: 14, actionKey: "post_check_sw2", label: "Post Check", team: "A", phase: "SW2" },
 ];
 
 export const TOTAL_STEPS = PIPELINE_STEPS.length;

@@ -5,6 +5,8 @@ import type { PairFilter as Filter } from "@/lib/types";
 
 const FILTERS: { value: Filter; label: string; dotColor?: string }[] = [
   { value: "all", label: "全部", dotColor: "bg-slate-400" },
+  { value: "operating", label: "正在操作", dotColor: "bg-green-600" },
+  { value: "on_hold", label: "队列中", dotColor: "bg-amber-500" },
   { value: "waiting_a", label: `等 ${teamLabel("A")}`, dotColor: "bg-blue-600" },
   { value: "waiting_b", label: `等 ${teamLabel("B")}`, dotColor: "bg-orange-600" },
   { value: "completed", label: "已完成", dotColor: "bg-emerald-600" },

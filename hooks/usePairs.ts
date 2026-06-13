@@ -7,6 +7,10 @@ const RECENT_HINT_MS = 10000;
 
 function filterPairs(all: PairWithSteps[], filter: PairFilter): PairWithSteps[] {
   switch (filter) {
+    case "operating":
+      return all.filter((p) => p.status !== "completed" && p.operating);
+    case "on_hold":
+      return all.filter((p) => p.status !== "completed" && !p.operating);
     case "waiting_a":
       return all.filter((p) => p.waiting_team === "A");
     case "waiting_b":
@@ -86,6 +90,10 @@ export function usePairs(filter: PairFilter, enabled: boolean) {
   const counts = useMemo(
     () => ({
       all: allPairs.length,
+      operating: allPairs.filter((p) => p.status !== "completed" && p.operating)
+        .length,
+      on_hold: allPairs.filter((p) => p.status !== "completed" && !p.operating)
+        .length,
       waiting_a: allPairs.filter((p) => p.waiting_team === "A").length,
       waiting_b: allPairs.filter((p) => p.waiting_team === "B").length,
       completed: allPairs.filter((p) => p.status === "completed").length,
