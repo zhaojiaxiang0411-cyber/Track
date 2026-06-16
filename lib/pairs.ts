@@ -9,6 +9,8 @@ function rowToPair(row: Record<string, unknown>): Pair {
     id: row.id as number,
     switch1: row.switch1 as string,
     switch2: row.switch2 as string,
+    rack: (row.rack as string | null) ?? null,
+    footprint: (row.footprint as string | null) ?? null,
     owner: (row.owner as string | null) ?? null,
     status: row.status as Pair["status"],
     created_at: row.created_at as string,
@@ -107,11 +109,15 @@ export function getPairById(id: number): PairWithSteps | null {
 export function createPair(
   switch1: string,
   switch2: string,
-  owner = ""
+  owner = "",
+  rack = "",
+  footprint = ""
 ): PairWithSteps {
   const s1 = switch1.trim();
   const s2 = switch2.trim();
   const ownerName = owner.trim();
+  const rackName = rack.trim();
+  const footprintName = footprint.trim();
   if (!s1 || !s2) {
     throw new Error("交换机编号不能为空");
   }
@@ -121,7 +127,7 @@ export function createPair(
 
   const db = getDb();
   const insertPair = db.prepare(
-    "INSERT INTO pairs (switch1, switch2, owner, created_at) VALUES (?, ?, ?, ?)"
+    "INSERT INTO pairs (switch1, switch2, rack, footprint, owner, created_at) VALUES (?, ?, ?, ?, ?, ?)"
   );
   const insertStep = db.prepare(`
     INSERT INTO step_instances (pair_id, step_order, action_key, team, label, started_at)
@@ -129,7 +135,14 @@ export function createPair(
   `);
 
   const pairId = runTransaction(() => {
-    const result = insertPair.run(s1, s2, ownerName || null, nowLocalString());
+    const result = insertPair.run(
+      s1,
+      s2,
+      rackName || null,
+      footprintName || null,
+      ownerName || null,
+      nowLocalString()
+    );
     const newPairId = Number(result.lastInsertRowid);
 
     for (const step of PIPELINE_STEPS) {
@@ -150,6 +163,40 @@ export function createPair(
 
   broadcast("pair_updated", { pairId, action: "created" });
   return pair;
+}
+
+export function updatePairInfo(
+  pairId: number,
+  fields: { rack?: string; footprint?: string }
+): PairWithSteps {
+  const db = getDb();
+  const existing = getPairById(pairId);
+  if (!existing) throw new Error("Pair 不存在");
+
+  const sets: string[] = [];
+  const values: (string | null)[] = [];
+
+  if (fields.rack !== undefined) {
+    sets.push("rack = ?");
+    values.push(fields.rack.trim() || null);
+  }
+  if (fields.footprint !== undefined) {
+    sets.push("footprint = ?");
+    values.push(fields.footprint.trim() || null);
+  }
+
+  if (sets.length === 0) {
+    return existing;
+  }
+
+  values.push(pairId);
+  db.prepare(`UPDATE pairs SET ${sets.join(", ")} WHERE id = ?`).run(...values);
+
+  const updated = getPairById(pairId);
+  if (!updated) throw new Error("更新失败");
+
+  broadcast("pair_updated", { pairId, action: "info_updated" });
+  return updated;
 }
 
 export function completeStep(pairId: number, stepOrder: number): PairWithSteps {

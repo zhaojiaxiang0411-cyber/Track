@@ -19,6 +19,8 @@ function initSchema(database: DatabaseSync) {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       switch1 TEXT NOT NULL,
       switch2 TEXT NOT NULL,
+      rack TEXT,
+      footprint TEXT,
       owner TEXT,
       status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'completed')),
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
@@ -41,6 +43,7 @@ function initSchema(database: DatabaseSync) {
     CREATE INDEX IF NOT EXISTS idx_step_instances_pair_id ON step_instances(pair_id);
   `);
   migrateAddOwnerColumn(database);
+  migrateAddRackFootprintColumns(database);
   migrateStepLabels(database);
   migrateRemoveCheckFaultSteps(database);
   migrateShiftLegacyUtcTimestamps(database);
@@ -115,6 +118,18 @@ function migrateAddOwnerColumn(database: DatabaseSync) {
   const hasOwner = columns.some((col) => col.name === "owner");
   if (!hasOwner) {
     database.exec("ALTER TABLE pairs ADD COLUMN owner TEXT");
+  }
+}
+
+function migrateAddRackFootprintColumns(database: DatabaseSync) {
+  const columns = database
+    .prepare("PRAGMA table_info(pairs)")
+    .all() as Array<{ name: string }>;
+  if (!columns.some((col) => col.name === "rack")) {
+    database.exec("ALTER TABLE pairs ADD COLUMN rack TEXT");
+  }
+  if (!columns.some((col) => col.name === "footprint")) {
+    database.exec("ALTER TABLE pairs ADD COLUMN footprint TEXT");
   }
 }
 

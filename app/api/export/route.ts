@@ -1,17 +1,11 @@
 import { buildExportCsv } from "@/lib/pairs";
-import { getSession } from "@/lib/auth";
-import { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(request: NextRequest) {
+// CSV 为只读数据导出，对所有人（含游客）开放。
+export async function GET() {
   try {
-    const session = getSession(request);
-    if (session.role === "guest") {
-      return NextResponse.json({ error: "请先登录" }, { status: 401 });
-    }
-
     const csv = buildExportCsv();
     const filename = `switch-replacement-${new Date().toISOString().slice(0, 10)}.csv`;
     return new NextResponse(csv, {

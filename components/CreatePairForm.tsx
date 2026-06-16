@@ -9,6 +9,8 @@ type CreatePairFormProps = {
 export function CreatePairForm({ onCreated }: CreatePairFormProps) {
   const [switch1, setSwitch1] = useState("");
   const [switch2, setSwitch2] = useState("");
+  const [rack, setRack] = useState("");
+  const [footprint, setFootprint] = useState("");
   const [owner, setOwner] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -21,12 +23,14 @@ export function CreatePairForm({ onCreated }: CreatePairFormProps) {
       const res = await fetch("/api/pairs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ switch1, switch2, owner }),
+        body: JSON.stringify({ switch1, switch2, rack, footprint, owner }),
       });
       const data = (await res.json()) as { error?: string };
       if (!res.ok) throw new Error(data.error ?? "创建失败");
       setSwitch1("");
       setSwitch2("");
+      setRack("");
+      setFootprint("");
       setOwner("");
       onCreated();
     } catch (err) {
@@ -65,6 +69,30 @@ export function CreatePairForm({ onCreated }: CreatePairFormProps) {
           placeholder="如 202"
           className="w-28 rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
           required
+        />
+      </div>
+      <div>
+        <label className="mb-1 block text-xs font-medium text-slate-500">
+          Rack
+        </label>
+        <input
+          type="text"
+          value={rack}
+          onChange={(e) => setRack(e.target.value)}
+          placeholder="可选，机架"
+          className="w-32 rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+        />
+      </div>
+      <div>
+        <label className="mb-1 block text-xs font-medium text-slate-500">
+          Footprint
+        </label>
+        <input
+          type="text"
+          value={footprint}
+          onChange={(e) => setFootprint(e.target.value)}
+          placeholder="可选，Footprint"
+          className="w-32 rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
         />
       </div>
       <div>

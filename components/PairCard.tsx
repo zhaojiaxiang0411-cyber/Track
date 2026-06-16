@@ -25,6 +25,35 @@ export function PairCard({
 }: PairCardProps) {
   const [completing, setCompleting] = useState<number | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [rackDraft, setRackDraft] = useState(pair.rack ?? "");
+  const [footprintDraft, setFootprintDraft] = useState(pair.footprint ?? "");
+  const [savingInfo, setSavingInfo] = useState(false);
+
+  const startEdit = () => {
+    setRackDraft(pair.rack ?? "");
+    setFootprintDraft(pair.footprint ?? "");
+    setEditing(true);
+  };
+
+  const handleSaveInfo = async () => {
+    setSavingInfo(true);
+    try {
+      const res = await fetch(`/api/pairs/${pair.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rack: rackDraft, footprint: footprintDraft }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? "保存失败");
+      setEditing(false);
+      onUpdated();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "保存失败");
+    } finally {
+      setSavingInfo(false);
+    }
+  };
 
   const handleComplete = async (stepOrder: number) => {
     setCompleting(stepOrder);
@@ -109,12 +138,75 @@ export function PairCard({
         <div>
           <h2 className="text-lg font-bold text-slate-900">
             Pair {pair.switch1} – {pair.switch2}
+            {pair.rack && (
+              <span className="ml-2 align-middle rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+                Rack: {pair.rack}
+              </span>
+            )}
+            {pair.footprint && (
+              <span className="ml-2 align-middle rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+                Footprint: {pair.footprint}
+              </span>
+            )}
             {pair.owner && (
               <span className="ml-2 align-middle rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
                 Owner: {pair.owner}
               </span>
             )}
+            {canDelete && !editing && (
+              <button
+                type="button"
+                onClick={startEdit}
+                className="ml-2 align-middle rounded-full px-2 py-0.5 text-xs font-medium text-blue-600 hover:bg-blue-50"
+              >
+                编辑 Rack/Footprint
+              </button>
+            )}
           </h2>
+          {editing && (
+            <div className="mt-2 flex flex-wrap items-end gap-2">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-500">
+                  Rack
+                </label>
+                <input
+                  type="text"
+                  value={rackDraft}
+                  onChange={(e) => setRackDraft(e.target.value)}
+                  placeholder="可选，Rack"
+                  className="w-32 rounded-lg border border-slate-200 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-500">
+                  Footprint
+                </label>
+                <input
+                  type="text"
+                  value={footprintDraft}
+                  onChange={(e) => setFootprintDraft(e.target.value)}
+                  placeholder="可选，Footprint"
+                  className="w-32 rounded-lg border border-slate-200 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={handleSaveInfo}
+                disabled={savingInfo}
+                className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
+              >
+                {savingInfo ? "保存中…" : "保存"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditing(false)}
+                disabled={savingInfo}
+                className="rounded-lg px-3 py-1.5 text-sm font-medium text-slate-500 hover:bg-slate-100"
+              >
+                取消
+              </button>
+            </div>
+          )}
           <p className="text-xs text-slate-500">
             创建于 {formatDateTime(pair.created_at)}
             {pair.total_duration_sec !== null && (

@@ -8,11 +8,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   try {
-    const session = getSession(request);
-    if (session.role === "guest") {
-      return NextResponse.json({ error: "请先登录" }, { status: 401 });
-    }
-
+    // 列表为只读数据，对所有人（含游客）开放。
     const filter = (request.nextUrl.searchParams.get("filter") ??
       "all") as PairFilter;
     const pairs = listPairs(filter);
@@ -37,12 +33,16 @@ export async function POST(request: NextRequest) {
     const body = (await request.json()) as {
       switch1?: string;
       switch2?: string;
+      rack?: string;
+      footprint?: string;
       owner?: string;
     };
     const pair = createPair(
       body.switch1 ?? "",
       body.switch2 ?? "",
-      body.owner ?? ""
+      body.owner ?? "",
+      body.rack ?? "",
+      body.footprint ?? ""
     );
     return NextResponse.json({ pair }, { status: 201 });
   } catch (error) {

@@ -14,6 +14,8 @@ export interface Pair {
   id: number;
   switch1: string;
   switch2: string;
+  rack: string | null;
+  footprint: string | null;
   owner: string | null;
   status: PairStatus;
   created_at: string;

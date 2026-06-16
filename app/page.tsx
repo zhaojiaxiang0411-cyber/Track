@@ -17,9 +17,8 @@ export default function HomePage() {
   const [highlightPairId, setHighlightPairId] = useState<number | null>(null);
   const [pendingScrollId, setPendingScrollId] = useState<number | null>(null);
   const { user, loading: authLoading, login, logout } = useAuth();
-  const isAuthed = user.role !== "guest";
   const { pairs, allPairs, counts, loading, error, refresh, recentlyUpdated } =
-    usePairs(filter, isAuthed);
+    usePairs(filter, true);
   const canManage = canManagePairs(user.role);
 
   const scrollToPair = useCallback((pairId: number) => {
@@ -91,7 +90,7 @@ export default function HomePage() {
       </header>
 
       <section className="mb-6 space-y-4">
-        {!authLoading && isAuthed && (
+        {!authLoading && (
           <>
             {canManage && <CreatePairForm onCreated={refresh} />}
             <div className="flex flex-wrap items-center justify-between gap-4">
@@ -107,50 +106,39 @@ export default function HomePage() {
         )}
       </section>
 
-      {!authLoading && !isAuthed && (
-        <section className="rounded-2xl bg-white py-12 text-center shadow-sm ring-1 ring-slate-200">
-          <p className="mb-2 text-base font-medium text-slate-800">请先登录</p>
-          <p className="text-sm text-slate-500">登录后才可查看和操作 pipeline</p>
-        </section>
+      {!loading && !error && allPairs.length > 0 && (
+        <PipelineOverview
+          pairs={allPairs}
+          onJumpToPair={handleJumpToPair}
+          recentlyUpdated={recentlyUpdated}
+        />
       )}
 
-      {isAuthed && (
-        <>
-          {!loading && !error && allPairs.length > 0 && (
-            <PipelineOverview
-              pairs={allPairs}
-              onJumpToPair={handleJumpToPair}
-              recentlyUpdated={recentlyUpdated}
-            />
-          )}
-
-          {loading && <p className="text-center text-sm text-slate-500">加载中…</p>}
-          {error && (
-            <p className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
-              {error}
-            </p>
-          )}
-
-          {!loading && !error && pairs.length === 0 && (
-            <div className="rounded-2xl bg-white py-16 text-center shadow-sm ring-1 ring-slate-200">
-              <p className="text-slate-500">暂无 Pair，请新建一对交换机开始跟踪</p>
-            </div>
-          )}
-
-          <section className="space-y-6">
-            {pairs.map((pair) => (
-              <PairCard
-                key={pair.id}
-                pair={pair}
-                role={user.role}
-                canDelete={canManage}
-                onUpdated={refresh}
-                highlighted={highlightPairId === pair.id}
-              />
-            ))}
-          </section>
-        </>
+      {loading && <p className="text-center text-sm text-slate-500">加载中…</p>}
+      {error && (
+        <p className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </p>
       )}
+
+      {!loading && !error && pairs.length === 0 && (
+        <div className="rounded-2xl bg-white py-16 text-center shadow-sm ring-1 ring-slate-200">
+          <p className="text-slate-500">暂无 Pair，请新建一对交换机开始跟踪</p>
+        </div>
+      )}
+
+      <section className="space-y-6">
+        {pairs.map((pair) => (
+          <PairCard
+            key={pair.id}
+            pair={pair}
+            role={user.role}
+            canDelete={canManage}
+            onUpdated={refresh}
+            highlighted={highlightPairId === pair.id}
+          />
+        ))}
+      </section>
     </main>
   );
 }
