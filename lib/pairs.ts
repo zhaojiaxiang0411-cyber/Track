@@ -179,7 +179,7 @@ export function updatePairInfo(
   if (!existing) throw new Error("Pair 不存在");
 
   const sets: string[] = [];
-  const values: (string | null)[] = [];
+  const values: (string | number | null)[] = [];
 
   if (fields.rack !== undefined) {
     sets.push("rack = ?");
