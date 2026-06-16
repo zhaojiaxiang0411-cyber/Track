@@ -37,10 +37,12 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const body = (await request.json()) as {
       rack?: string;
       footprint?: string;
+      owner?: string;
     };
-    const fields: { rack?: string; footprint?: string } = {};
+    const fields: { rack?: string; footprint?: string; owner?: string } = {};
     if (typeof body.rack === "string") fields.rack = body.rack;
     if (typeof body.footprint === "string") fields.footprint = body.footprint;
+    if (typeof body.owner === "string") fields.owner = body.owner;
     const pair = updatePairInfo(Number(id), fields);
     return NextResponse.json({ pair });
   } catch (error) {

@@ -1,6 +1,11 @@
 import { getDb, runTransaction } from "./db";
 import { broadcast } from "./events";
-import { PIPELINE_STEPS, TOTAL_STEPS, resolveStepLabel } from "./pipeline";
+import {
+  PIPELINE_STEPS,
+  TOTAL_STEPS,
+  resolveStepLabel,
+  resolveStepSwitch,
+} from "./pipeline";
 import { nowLocalString, parseLocalTimeMs, teamLabel } from "./format";
 import type { Pair, PairFilter, PairWithSteps, StepInstance, Team } from "./types";
 
@@ -167,7 +172,7 @@ export function createPair(
 
 export function updatePairInfo(
   pairId: number,
-  fields: { rack?: string; footprint?: string }
+  fields: { rack?: string; footprint?: string; owner?: string }
 ): PairWithSteps {
   const db = getDb();
   const existing = getPairById(pairId);
@@ -183,6 +188,10 @@ export function updatePairInfo(
   if (fields.footprint !== undefined) {
     sets.push("footprint = ?");
     values.push(fields.footprint.trim() || null);
+  }
+  if (fields.owner !== undefined) {
+    sets.push("owner = ?");
+    values.push(fields.owner.trim() || null);
   }
 
   if (sets.length === 0) {
@@ -271,7 +280,7 @@ export function deletePair(pairId: number): void {
 export function buildExportCsv(): string {
   const pairs = listPairs("all");
   const header =
-    "Pair,Switch1,Switch2,StepOrder,Action,Team,Phase,StartedAt,CompletedAt,DurationSec,PairStatus";
+    "Pair,Switch1,Switch2,StepOrder,Action,Team,Switch,StartedAt,CompletedAt,DurationSec,PairStatus";
   const rows: string[] = [header];
 
   // Pipeline Start（步骤 1）与 Snapshot（步骤 2）不计入导出
@@ -280,8 +289,8 @@ export function buildExportCsv(): string {
   for (const pair of pairs) {
     for (const step of pair.steps) {
       if (EXCLUDED_STEP_ORDERS.has(step.step_order)) continue;
-      const template = PIPELINE_STEPS.find((t) => t.order === step.step_order);
-      const phase = template?.phase ?? "";
+      const phase =
+        resolveStepSwitch(step.step_order, pair.switch1, pair.switch2) ?? "";
       rows.push(
         [
           `${pair.switch1}-${pair.switch2}`,
@@ -290,7 +299,7 @@ export function buildExportCsv(): string {
           step.step_order,
           csvEscape(resolveStepLabel(step.step_order, step.label)),
           teamLabel(step.team),
-          phase,
+          csvEscape(phase),
           step.started_at ?? "",
           step.completed_at ?? "",
           step.duration_sec ?? "",

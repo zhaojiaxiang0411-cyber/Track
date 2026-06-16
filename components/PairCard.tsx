@@ -28,11 +28,13 @@ export function PairCard({
   const [editing, setEditing] = useState(false);
   const [rackDraft, setRackDraft] = useState(pair.rack ?? "");
   const [footprintDraft, setFootprintDraft] = useState(pair.footprint ?? "");
+  const [ownerDraft, setOwnerDraft] = useState(pair.owner ?? "");
   const [savingInfo, setSavingInfo] = useState(false);
 
   const startEdit = () => {
     setRackDraft(pair.rack ?? "");
     setFootprintDraft(pair.footprint ?? "");
+    setOwnerDraft(pair.owner ?? "");
     setEditing(true);
   };
 
@@ -42,7 +44,11 @@ export function PairCard({
       const res = await fetch(`/api/pairs/${pair.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rack: rackDraft, footprint: footprintDraft }),
+        body: JSON.stringify({
+          rack: rackDraft,
+          footprint: footprintDraft,
+          owner: ownerDraft,
+        }),
       });
       const data = (await res.json()) as { error?: string };
       if (!res.ok) throw new Error(data.error ?? "保存失败");
@@ -159,7 +165,7 @@ export function PairCard({
                 onClick={startEdit}
                 className="ml-2 align-middle rounded-full px-2 py-0.5 text-xs font-medium text-blue-600 hover:bg-blue-50"
               >
-                编辑 Rack/Footprint
+                编辑信息
               </button>
             )}
           </h2>
@@ -186,6 +192,18 @@ export function PairCard({
                   value={footprintDraft}
                   onChange={(e) => setFootprintDraft(e.target.value)}
                   placeholder="可选，Footprint"
+                  className="w-32 rounded-lg border border-slate-200 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-500">
+                  Owner
+                </label>
+                <input
+                  type="text"
+                  value={ownerDraft}
+                  onChange={(e) => setOwnerDraft(e.target.value)}
+                  placeholder="可选，Owner"
                   className="w-32 rounded-lg border border-slate-200 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
                 />
               </div>
