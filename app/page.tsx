@@ -8,7 +8,7 @@ import { PipelineOverview } from "@/components/PipelineOverview";
 import { useAuth } from "@/hooks/useAuth";
 import { usePairs } from "@/hooks/usePairs";
 import { teamLabel } from "@/lib/format";
-import { canManagePairs } from "@/lib/permissions";
+import { canEditInfo, canManagePairs } from "@/lib/permissions";
 import type { PairFilter } from "@/lib/types";
 import { useCallback, useEffect, useState } from "react";
 
@@ -20,6 +20,7 @@ export default function HomePage() {
   const { pairs, allPairs, counts, loading, error, refresh, recentlyUpdated } =
     usePairs(filter, true);
   const canManage = canManagePairs(user.role);
+  const userCanEditInfo = canEditInfo(user.role);
 
   const scrollToPair = useCallback((pairId: number) => {
     const el = document.getElementById(`pair-${pairId}`);
@@ -134,6 +135,7 @@ export default function HomePage() {
             pair={pair}
             role={user.role}
             canDelete={canManage}
+            canEditInfo={userCanEditInfo}
             onUpdated={refresh}
             highlighted={highlightPairId === pair.id}
           />

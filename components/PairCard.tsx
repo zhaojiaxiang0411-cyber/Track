@@ -12,6 +12,7 @@ type PairCardProps = {
   pair: PairWithSteps;
   role: Role;
   canDelete: boolean;
+  canEditInfo?: boolean;
   onUpdated: () => void;
   highlighted?: boolean;
 };
@@ -20,6 +21,7 @@ export function PairCard({
   pair,
   role,
   canDelete,
+  canEditInfo = false,
   onUpdated,
   highlighted,
 }: PairCardProps) {
@@ -41,14 +43,14 @@ export function PairCard({
   const handleSaveInfo = async () => {
     setSavingInfo(true);
     try {
+      // admin 可改全部信息；homison 仅提交 Info（footprint）
+      const payload = canDelete
+        ? { rack: rackDraft, footprint: footprintDraft, owner: ownerDraft }
+        : { footprint: footprintDraft };
       const res = await fetch(`/api/pairs/${pair.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          rack: rackDraft,
-          footprint: footprintDraft,
-          owner: ownerDraft,
-        }),
+        body: JSON.stringify(payload),
       });
       const data = (await res.json()) as { error?: string };
       if (!res.ok) throw new Error(data.error ?? "保存失败");
@@ -151,7 +153,7 @@ export function PairCard({
             )}
             {pair.footprint && (
               <span className="ml-2 align-middle rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
-                Footprint: {pair.footprint}
+                Info: {pair.footprint}
               </span>
             )}
             {pair.owner && (
@@ -159,54 +161,58 @@ export function PairCard({
                 Owner: {pair.owner}
               </span>
             )}
-            {canDelete && !editing && (
+            {(canDelete || canEditInfo) && !editing && (
               <button
                 type="button"
                 onClick={startEdit}
                 className="ml-2 align-middle rounded-full px-2 py-0.5 text-xs font-medium text-blue-600 hover:bg-blue-50"
               >
-                编辑信息
+                {canDelete ? "编辑信息" : "编辑 Info"}
               </button>
             )}
           </h2>
           {editing && (
             <div className="mt-2 flex flex-wrap items-end gap-2">
+              {canDelete && (
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-500">
+                    Rack
+                  </label>
+                  <input
+                    type="text"
+                    value={rackDraft}
+                    onChange={(e) => setRackDraft(e.target.value)}
+                    placeholder="可选，Rack"
+                    className="w-32 rounded-lg border border-slate-200 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                  />
+                </div>
+              )}
               <div>
                 <label className="mb-1 block text-xs font-medium text-slate-500">
-                  Rack
-                </label>
-                <input
-                  type="text"
-                  value={rackDraft}
-                  onChange={(e) => setRackDraft(e.target.value)}
-                  placeholder="可选，Rack"
-                  className="w-32 rounded-lg border border-slate-200 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-500">
-                  Footprint
+                  Info
                 </label>
                 <input
                   type="text"
                   value={footprintDraft}
                   onChange={(e) => setFootprintDraft(e.target.value)}
-                  placeholder="可选，Footprint"
+                  placeholder="可选，Info"
                   className="w-32 rounded-lg border border-slate-200 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
                 />
               </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-500">
-                  Owner
-                </label>
-                <input
-                  type="text"
-                  value={ownerDraft}
-                  onChange={(e) => setOwnerDraft(e.target.value)}
-                  placeholder="可选，Owner"
-                  className="w-32 rounded-lg border border-slate-200 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                />
-              </div>
+              {canDelete && (
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-500">
+                    Owner
+                  </label>
+                  <input
+                    type="text"
+                    value={ownerDraft}
+                    onChange={(e) => setOwnerDraft(e.target.value)}
+                    placeholder="可选，Owner"
+                    className="w-32 rounded-lg border border-slate-200 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                  />
+                </div>
+              )}
               <button
                 type="button"
                 onClick={handleSaveInfo}

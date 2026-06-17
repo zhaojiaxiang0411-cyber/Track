@@ -85,13 +85,13 @@ export function CreatePairForm({ onCreated }: CreatePairFormProps) {
       </div>
       <div>
         <label className="mb-1 block text-xs font-medium text-slate-500">
-          Footprint
+          Info
         </label>
         <input
           type="text"
           value={footprint}
           onChange={(e) => setFootprint(e.target.value)}
-          placeholder="可选，Footprint"
+          placeholder="可选，Info"
           className="w-32 rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
         />
       </div>

@@ -17,3 +17,9 @@ export function canCompleteStep(role: Role, team: Team): boolean {
 export function canManagePairs(role: Role): boolean {
   return role === "admin";
 }
+
+// 能否修改 Info 字段：admin（cisco）与 homison 均可
+// （admin 可改全部信息；homison 仅限 Info）
+export function canEditInfo(role: Role): boolean {
+  return role === "admin" || role === "homison";
+}

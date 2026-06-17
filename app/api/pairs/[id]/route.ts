@@ -1,6 +1,6 @@
 import { getSession } from "@/lib/auth";
 import { deletePair, getPairById, updatePairInfo } from "@/lib/pairs";
-import { canManagePairs } from "@/lib/permissions";
+import { canEditInfo, canManagePairs } from "@/lib/permissions";
 import { NextRequest, NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
@@ -27,9 +27,9 @@ export async function GET(_request: NextRequest, context: RouteContext) {
 export async function PATCH(request: NextRequest, context: RouteContext) {
   try {
     const session = getSession(request);
-    if (!canManagePairs(session.role)) {
+    if (!canEditInfo(session.role)) {
       return NextResponse.json(
-        { error: "无权限修改 pipeline，仅 cisco 账号可操作" },
+        { error: "无权限修改 pipeline，仅 cisco / homison 账号可操作" },
         { status: session.role === "guest" ? 401 : 403 }
       );
     }
@@ -40,9 +40,13 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       owner?: string;
     };
     const fields: { rack?: string; footprint?: string; owner?: string } = {};
-    if (typeof body.rack === "string") fields.rack = body.rack;
+    // Info（footprint）：admin 与 homison 均可修改
     if (typeof body.footprint === "string") fields.footprint = body.footprint;
-    if (typeof body.owner === "string") fields.owner = body.owner;
+    // Rack / Owner：仅 admin（cisco）可修改
+    if (canManagePairs(session.role)) {
+      if (typeof body.rack === "string") fields.rack = body.rack;
+      if (typeof body.owner === "string") fields.owner = body.owner;
+    }
     const pair = updatePairInfo(Number(id), fields);
     return NextResponse.json({ pair });
   } catch (error) {
