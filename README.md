@@ -67,17 +67,24 @@ npm run build && npm start
 
 ## 流水线步骤
 
-| # | Action | Team |
-|---|--------|------|
-| 1 | Pipeline Start | A |
-| 2 | Snapshot (SW1) | A |
-| 3 | Label (SW1) | B |
-| 4 | Decommission (SW1) | A |
-| 5 | Rack and Plugin Uplinks (SW1) | B |
-| 6 | 发现后 Commission (SW1) | A |
-| 7 | Plugin Downlinks (SW1) | B |
-| 8 | Post Check (SW1) | A |
-| 9–13 | 同上流程 (SW2) | A/B |
+| # | Action | Team | Phase |
+|---|--------|------|-------|
+| 1 | Pipeline Start | A（cisco） | 全局 |
+| 2 | Snapshot | A（cisco） | 全局 |
+| 3 | Label | B（homison） | SW1 |
+| 4 | Decommission | A（cisco） | SW1 |
+| 5 | Rack and Plugin Uplinks | B（homison） | SW1 |
+| 6 | Register | A（cisco） | SW1 |
+| 7 | Plugin Downlinks | B（homison） | SW1 |
+| 8 | Post Check | A（cisco） | SW1 |
+| 9 | Label | B（homison） | SW2 |
+| 10 | Decommission | A（cisco） | SW2 |
+| 11 | Rack and Plugin Uplinks | B（homison） | SW2 |
+| 12 | Register | A（cisco） | SW2 |
+| 13 | Plugin Downlinks | B（homison） | SW2 |
+| 14 | Post Check | A（cisco） | SW2 |
+
+> 步骤定义以 `lib/pipeline.ts` 为单一事实来源。计时基准为 Snapshot（步骤 2）完成时刻，步骤 1、2 不计入总耗时与 CSV 导出。
 
 ## 数据存储
 
