@@ -4,9 +4,9 @@
 
 ## 1. 项目概述
 
-**ACI Leaf Refresh Pipeline 协作工具**：用于成对交换机（如 `201` / `202`）替换维护窗口的 Web 协作跟踪工具。
+**DC Refresh Pipelines 协作工具**：用于成对交换机（如 `201` / `202`）替换维护窗口的 Web 协作跟踪工具。
 
-- 两个 Team 通过颜色状态协作，按固定顺序逐步完成一条 14 步流水线。
+- 两个 Team 通过颜色状态协作，按固定顺序逐步完成一条 16 步流水线。
 - 自动记录每步的开始 / 完成时间与耗时，支持多个 Pair（成对交换机）并行跟踪。
 - 通过 SSE 实时推送，任意一方完成步骤后，其他人浏览器即时看到更新。
 - 支持登录与基于角色的权限控制，以及全量时间记录的 CSV 导出。
@@ -86,21 +86,22 @@ Dockerfile / .dockerignore   # 容器化
 
 关键类型见 `lib/types.ts`：`Pair` / `StepInstance` / `PairWithSteps`（含 `current_step_order`、`waiting_team`、`total_duration_sec`）/ `Role` / `SessionUser`。
 
-### 流水线步骤（14 步，定义于 `lib/pipeline.ts` — 单一事实来源）
+### 流水线步骤（16 步，定义于 `lib/pipeline.ts` — 单一事实来源）
 
 | # | Action(label) | Team | Phase |
 |---|---------------|------|-------|
 | 1 | Pipeline Start | A | 全局 |
 | 2 | Snapshot | A | 全局 |
 | 3 | Label | B | SW1 |
-| 4 | Decommission | A | SW1 |
-| 5 | Rack and Plugin Uplinks | B | SW1 |
-| 6 | Register | A | SW1 |
-| 7 | Plugin Downlinks | B | SW1 |
-| 8 | Post Check | A | SW1 |
-| 9–14 | 同 3–8 流程对称重复 | B/A | SW2 |
+| 4 | Unplug Downlinks | B | SW1 |
+| 5 | Decommission | A | SW1 |
+| 6 | Rack and Plugin Uplinks | B | SW1 |
+| 7 | Register | A | SW1 |
+| 8 | Plugin Downlinks | B | SW1 |
+| 9 | Post Check | A | SW1 |
+| 10–16 | 同 3–9 流程对称重复 | B/A | SW2 |
 
-> 注：`README.md` 步骤表略旧（写为 13 步、含「发现后 Commission」旧文案），**以 `lib/pipeline.ts` 为准**。
+> 注：`README.md` 步骤表已同步为 16 步；如两者出现分歧，**以 `lib/pipeline.ts` 为准**。
 
 ## 5. 关键业务规则（改代码务必遵守）
 
@@ -112,6 +113,11 @@ Dockerfile / .dockerignore   # 容器化
 4. **完成步骤的连锁**：完成某步时写入 `completed_at` / `duration_sec`，并把下一步的 `started_at` 置为该完成时刻；最后一步完成则把 pair `status` 置 `completed`。
 5. **权限三处一致**：判断逻辑集中在 `lib/permissions.ts`（`canCompleteStep` / `canManagePairs` / `canEditInfo`），前端按钮与服务端 API 都调用它。**前端禁用仅为体验，真正的强制在服务端 API**（返回 401/403）。
    - 注意 PATCH 改 Info：`footprint` 任意登录用户可改；`rack` / `owner` 仅 admin 可改。
+6. **CSV 导出安全**：`buildExportCsv` 用 `csvCell` 生成单元格——
+   - **中和公式注入**：对以 `= + - @` 或控制字符（Tab/CR）开头的值加前缀单引号，防止 Excel/Sheets 把用户可控字段（如 switch 名称）当公式执行。
+   - **RFC 4180 转义**：含逗号/引号/换行(`\r` 或 `\n`)的值用双引号包裹并将内部引号翻倍。
+   - **行分隔用 `\r\n`（CRLF）**，避免仅 `\n` 在部分工具解析异常。
+   - 新增/修改导出字段时务必走 `csvCell`，勿直接拼接原始值。
 
 ## 6. 认证与会话（`lib/auth.ts`）
 
@@ -136,15 +142,17 @@ Dockerfile / .dockerignore   # 容器化
 
 ## 8. 数据库迁移（`lib/db.ts`）
 
-`initSchema` 在每次连接时自动建表并跑迁移，幂等设计：
+`initSchema` 在每次连接时自动建表并跑迁移，幂等设计。**所有迁移整体包进一个事务（`BEGIN` → 依次执行 → `COMMIT`；任一步抛错则 `ROLLBACK`）**，避免留下「半迁移」脏数据（如 `step_order` 被改成负值却未落回正值，导致步骤顺序错乱）。
 
 - `migrateAddOwnerColumn` / `migrateAddRackFootprintColumns`：按需 `ALTER TABLE` 加列。
 - `migrateStepLabels`：把历史 label 旧文案统一为新文案。
-- `migrateRemoveCheckFaultSteps`：删除旧的 `check_fault_*` 步骤并把 SW2 步骤顺移到 10–14。
+- `migrateRemoveCheckFaultSteps`：删除旧的 `check_fault_*` 步骤并把 SW2 步骤顺移。**已加存在性守护**：仅当确有 `check_fault_*` 旧步骤时才执行；否则直接返回，避免每次启动无条件重排、与后续新布局冲突。
 - `migrateShiftLegacyUtcTimestamps`：用 `PRAGMA user_version`（目标 1）一次性把早期 UTC 旧数据 +8 小时校正。
 - `migrateAddLabelSw2`：用 `PRAGMA user_version`（目标 2）一次性为 SW2 在 Decommission 前补 `label_sw2`（步骤 9）。
+- `migrateAddUnplugDownlinks`：用 `PRAGMA user_version`（目标 3）一次性在 Label 与 Decommission 之间为 SW1/SW2 各补 `unplug_downlink_*`（步骤 4、11），并顺移后续步骤到 5–16；对已完成同 phase Decommission 的历史 pair 直接标记该步骤为已完成。
+- `migrateNormalizeStepOrder`：用 `PRAGMA user_version`（目标 4）一次性按 `pipeline.ts` 的权威布局，依 `action_key` 把每步 `step_order` 归一，修复历史（早期重排缺守护叠加 unplug 迁移）遗留的负值/乱序数据；采用「先取负、再落权威正值」的双段重排以规避 `UNIQUE(pair_id, step_order)` 冲突，对已正确的数据无副作用。
 
-> 改 schema/步骤时：用 `PRAGMA user_version` 守护「只执行一次」的迁移，列新增用 `PRAGMA table_info` 判断幂等。
+> 改 schema/步骤时：用 `PRAGMA user_version` 守护「只执行一次」的迁移，列新增用 `PRAGMA table_info` 判断幂等；重排 `step_order` 时用「先取负、再落值」两段避免撞唯一约束。
 
 ## 9. API 速查
 
@@ -198,5 +206,5 @@ docker run -p 3000:3000 -v $(pwd)/data:/app/data \
 
 - 默认开发密钥与默认密码不安全，**生产必须用环境变量覆盖**。
 - SSE 为单进程内存广播，不支持多实例水平扩展。
-- `README.md` 的步骤表与权限细节略滞后于代码，以 `lib/` 实现为准。
+- 若文档（`README.md` / 本文件）与代码出现分歧，一律以 `lib/` 实现为准。
 - SQLite 单文件 + WAL，定位单机内网；高并发/分布式场景需更换存储。

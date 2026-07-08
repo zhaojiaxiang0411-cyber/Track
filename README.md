@@ -1,10 +1,10 @@
-# ACI Leaf Refresh Pipeline 协作工具
+# DC Refresh Pipelines 协作工具
 
 成对交换机（如 201-202）替换维护窗口的 Web 协作跟踪工具。两个 Team 通过颜色状态协作，自动记录每步完成时间，支持多 Pair 并行。
 
 ## 功能
 
-- 每对交换机 15 步标准流水线，严格顺序执行
+- 每对交换机 16 步标准流水线，严格顺序执行
 - cisco（蓝色）/ homison（橙色）分工可视化
 - 一方完成后点击，另一方实时看到可执行步骤（SSE 推送）
 - 记录每步 `started_at`、`completed_at`、`duration_sec`
@@ -72,17 +72,19 @@ npm run build && npm start
 | 1 | Pipeline Start | A（cisco） | 全局 |
 | 2 | Snapshot | A（cisco） | 全局 |
 | 3 | Label | B（homison） | SW1 |
-| 4 | Decommission | A（cisco） | SW1 |
-| 5 | Rack and Plugin Uplinks | B（homison） | SW1 |
-| 6 | Register | A（cisco） | SW1 |
-| 7 | Plugin Downlinks | B（homison） | SW1 |
-| 8 | Post Check | A（cisco） | SW1 |
-| 9 | Label | B（homison） | SW2 |
-| 10 | Decommission | A（cisco） | SW2 |
-| 11 | Rack and Plugin Uplinks | B（homison） | SW2 |
-| 12 | Register | A（cisco） | SW2 |
-| 13 | Plugin Downlinks | B（homison） | SW2 |
-| 14 | Post Check | A（cisco） | SW2 |
+| 4 | Unplug Downlinks | B（homison） | SW1 |
+| 5 | Decommission | A（cisco） | SW1 |
+| 6 | Rack and Plugin Uplinks | B（homison） | SW1 |
+| 7 | Register | A（cisco） | SW1 |
+| 8 | Plugin Downlinks | B（homison） | SW1 |
+| 9 | Post Check | A（cisco） | SW1 |
+| 10 | Label | B（homison） | SW2 |
+| 11 | Unplug Downlinks | B（homison） | SW2 |
+| 12 | Decommission | A（cisco） | SW2 |
+| 13 | Rack and Plugin Uplinks | B（homison） | SW2 |
+| 14 | Register | A（cisco） | SW2 |
+| 15 | Plugin Downlinks | B（homison） | SW2 |
+| 16 | Post Check | A（cisco） | SW2 |
 
 > 步骤定义以 `lib/pipeline.ts` 为单一事实来源。计时基准为 Snapshot（步骤 2）完成时刻，步骤 1、2 不计入总耗时与 CSV 导出。
 

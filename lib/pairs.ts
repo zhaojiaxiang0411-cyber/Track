@@ -293,28 +293,38 @@ export function buildExportCsv(): string {
         resolveStepSwitch(step.step_order, pair.switch1, pair.switch2) ?? "";
       rows.push(
         [
-          `${pair.switch1}-${pair.switch2}`,
-          pair.switch1,
-          pair.switch2,
-          step.step_order,
-          csvEscape(resolveStepLabel(step.step_order, step.label)),
-          teamLabel(step.team),
-          csvEscape(phase),
-          step.started_at ?? "",
-          step.completed_at ?? "",
-          step.duration_sec ?? "",
-          pair.status,
+          csvCell(`${pair.switch1}-${pair.switch2}`),
+          csvCell(pair.switch1),
+          csvCell(pair.switch2),
+          csvCell(step.step_order),
+          csvCell(resolveStepLabel(step.step_order, step.label)),
+          csvCell(teamLabel(step.team)),
+          csvCell(phase),
+          csvCell(step.started_at),
+          csvCell(step.completed_at),
+          csvCell(step.duration_sec),
+          csvCell(pair.status),
         ].join(",")
       );
     }
   }
 
-  return rows.join("\n");
+  // 标准 CSV 用 CRLF 作行分隔，避免仅 \n 在部分工具中解析异常。
+  return rows.join("\r\n");
 }
 
-function csvEscape(value: string): string {
-  if (value.includes(",") || value.includes('"') || value.includes("\n")) {
-    return `"${value.replace(/"/g, '""')}"`;
+// 生成安全的 CSV 单元格：
+// 1) 中和公式注入 —— Excel/Sheets 会把以 = + - @ 或控制字符（Tab/CR）开头的单元格
+//    当作公式执行，甚至触发命令。switch 名称等字段用户可控，故对这类文本加前缀单引号使其失效。
+// 2) 按 RFC 4180 转义 —— 含逗号 / 引号 / 换行(\r 或 \n) 的值用双引号包裹并将内部引号翻倍。
+function csvCell(value: string | number | null | undefined): string {
+  if (value === null || value === undefined) return "";
+  let text = String(value);
+  if (/^[=+\-@\t\r]/.test(text)) {
+    text = `'${text}`;
   }
-  return value;
+  if (/[",\r\n]/.test(text)) {
+    text = `"${text.replace(/"/g, '""')}"`;
+  }
+  return text;
 }

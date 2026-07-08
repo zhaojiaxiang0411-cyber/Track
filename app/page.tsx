@@ -65,7 +65,7 @@ export default function HomePage() {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-slate-900 sm:text-3xl">
-              ACI Leaf Refresh Pipeline
+              DC Refresh Pipelines
             </h1>
             <p className="mt-1 text-sm text-slate-500">
               {teamLabel("A")}（蓝）与 {teamLabel("B")}（橙）协作跟踪 · 实时同步
