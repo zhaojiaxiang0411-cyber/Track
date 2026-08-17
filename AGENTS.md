@@ -6,7 +6,7 @@
 
 **DC Refresh Pipelines 协作工具**：用于成对交换机（如 `201` / `202`）替换维护窗口的 Web 协作跟踪工具。
 
-- 两个 Team 通过颜色状态协作，按固定顺序逐步完成一条 16 步流水线。
+- 两个 Team 通过颜色状态协作，按固定顺序逐步完成一条 14 步流水线。
 - 自动记录每步的开始 / 完成时间与耗时，支持多个 Pair（成对交换机）并行跟踪。
 - 通过 SSE 实时推送，任意一方完成步骤后，其他人浏览器即时看到更新。
 - 支持登录与基于角色的权限控制，以及全量时间记录的 CSV 导出。
@@ -18,7 +18,7 @@
 | 内部 Team | 显示名称 | 颜色 | 负责步骤类型 |
 |-----------|----------|------|--------------|
 | `A` | **cisco** | 蓝色 | Pipeline Start / Snapshot / Decommission / Register / Post Check |
-| `B` | **homison** | 橙色 | Label / Rack & Plugin Uplinks / Plugin Downlinks |
+| `B` | **homison** | 橙色 | Label and Unplug Downlinks / Rack & Plugin Uplinks / Plugin Downlinks |
 
 | 角色 `Role` | 账号 | 权限 |
 |-------------|------|------|
@@ -86,22 +86,22 @@ Dockerfile / .dockerignore   # 容器化
 
 关键类型见 `lib/types.ts`：`Pair` / `StepInstance` / `PairWithSteps`（含 `current_step_order`、`waiting_team`、`total_duration_sec`）/ `Role` / `SessionUser`。
 
-### 流水线步骤（16 步，定义于 `lib/pipeline.ts` — 单一事实来源）
+### 流水线步骤（14 步，定义于 `lib/pipeline.ts` — 单一事实来源）
 
 | # | Action(label) | Team | Phase |
 |---|---------------|------|-------|
 | 1 | Pipeline Start | A | 全局 |
 | 2 | Snapshot | A | 全局 |
-| 3 | Label | B | SW1 |
-| 4 | Unplug Downlinks | B | SW1 |
-| 5 | Decommission | A | SW1 |
-| 6 | Rack and Plugin Uplinks | B | SW1 |
-| 7 | Register | A | SW1 |
-| 8 | Plugin Downlinks | B | SW1 |
-| 9 | Post Check | A | SW1 |
-| 10–16 | 同 3–9 流程对称重复 | B/A | SW2 |
+| 3 | Label and Unplug Downlinks | B | SW1 |
+| 4 | Decommission | A | SW1 |
+| 5 | Rack and Plugin Uplinks | B | SW1 |
+| 6 | Register | A | SW1 |
+| 7 | Plugin Downlinks | B | SW1 |
+| 8 | Post Check | A | SW1 |
+| 9–14 | 同 3–8 流程对称重复 | B/A | SW2 |
 
-> 注：`README.md` 步骤表已同步为 16 步；如两者出现分歧，**以 `lib/pipeline.ts` 为准**。
+> 注：`README.md` 步骤表已同步为 14 步；如两者出现分歧，**以 `lib/pipeline.ts` 为准**。
+> 贴标签与拔下联原为两步（`label_*` / `unplug_downlink_*`），现合并为一步，`action_key` 沿用 `label_sw1` / `label_sw2`。
 
 ## 5. 关键业务规则（改代码务必遵守）
 
@@ -150,7 +150,7 @@ Dockerfile / .dockerignore   # 容器化
 - `migrateShiftLegacyUtcTimestamps`：用 `PRAGMA user_version`（目标 1）一次性把早期 UTC 旧数据 +8 小时校正。
 - `migrateAddLabelSw2`：用 `PRAGMA user_version`（目标 2）一次性为 SW2 在 Decommission 前补 `label_sw2`（步骤 9）。
 - `migrateAddUnplugDownlinks`：用 `PRAGMA user_version`（目标 3）一次性在 Label 与 Decommission 之间为 SW1/SW2 各补 `unplug_downlink_*`（步骤 4、11），并顺移后续步骤到 5–16；对已完成同 phase Decommission 的历史 pair 直接标记该步骤为已完成。
-- `migrateNormalizeStepOrder`：用 `PRAGMA user_version`（目标 4）一次性按 `pipeline.ts` 的权威布局，依 `action_key` 把每步 `step_order` 归一，修复历史（早期重排缺守护叠加 unplug 迁移）遗留的负值/乱序数据；采用「先取负、再落权威正值」的双段重排以规避 `UNIQUE(pair_id, step_order)` 冲突，对已正确的数据无副作用。
+- `migrateMergeLabelAndUnplug`：用 `PRAGMA user_version`（目标 5）一次性把 `unplug_downlink_*` 合并进同 phase 的 `label_*`（16 步 → 14 步）。合并步 `started_at` 取原 Label 开始时刻、`completed_at` 取原 Unplug 完成时刻并重算耗时；**原 Unplug 未完成则合并步整体视为未完成**，交回 B 组重做。随后删除 Unplug 行、统一文案为 `Label and Unplug Downlinks`，并按 `pipeline.ts` 权威布局重排全部 `step_order`（临时值用 `-1001` 起，避免与历史遗留负值撞 `UNIQUE(pair_id, step_order)`）。该重排取代了原 `migrateNormalizeStepOrder`（目标 4），后者已删除。
 
 > 改 schema/步骤时：用 `PRAGMA user_version` 守护「只执行一次」的迁移，列新增用 `PRAGMA table_info` 判断幂等；重排 `step_order` 时用「先取负、再落值」两段避免撞唯一约束。
 

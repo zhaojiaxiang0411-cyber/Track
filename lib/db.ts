@@ -54,7 +54,7 @@ function initSchema(database: DatabaseSync) {
     migrateShiftLegacyUtcTimestamps(database);
     migrateAddLabelSw2(database);
     migrateAddUnplugDownlinks(database);
-    migrateNormalizeStepOrder(database);
+    migrateMergeLabelAndUnplug(database);
     database.exec("COMMIT");
   } catch (error) {
     database.exec("ROLLBACK");
@@ -62,28 +62,90 @@ function initSchema(database: DatabaseSync) {
   }
 }
 
-// 一次性修复：把每个步骤的 step_order 按 action_key 归一到 pipeline.ts 的权威布局。
-// 历史上 migrateRemoveCheckFaultSteps 缺少守护、每次启动重排，与 unplug 迁移冲突后
-// 会留下负值 / 乱序的 step_order。这里按权威映射重置，修复已损坏数据；
-// 因是幂等的双段「先取负、再落值」重排，对已正确的数据无副作用。
+// 一次性迁移：把 Label 与 Unplug Downlinks 合并为一步（仍归 B 组），
+// 流水线由 16 步变为 14 步（SW1 合并步 = 3、SW2 合并步 = 9）。
+// 合并语义：合并步的 started_at 取原 Label 的开始时刻，completed_at 取原 Unplug 的完成时刻，
+// duration 按两者重算；若原 Unplug 未完成，则合并步整体视为未完成（两步都做完才算完成），
+// 由 B 组重新点一次，避免把「只贴了标签、还没拔线」的流程当作已完成。
+// 本迁移同时按 pipeline.ts 的权威布局重排全部 step_order，
+// 因此取代了原 migrateNormalizeStepOrder（user_version 4）的归一修复。
 // 用 user_version 保证只执行一次。
-function migrateNormalizeStepOrder(database: DatabaseSync) {
-  const TARGET_VERSION = 4;
+function migrateMergeLabelAndUnplug(database: DatabaseSync) {
+  const TARGET_VERSION = 5;
   const row = database.prepare("PRAGMA user_version").get() as
     | { user_version: number }
     | undefined;
   const current = row?.user_version ?? 0;
   if (current >= TARGET_VERSION) return;
 
+  // 1) 把同 phase 的 Unplug 时间并入 Label 行。
+  //    仅在该 pair 确有 Unplug 行时更新，避免把没有 Unplug 可合并的 Label 完成状态抹掉。
+  const mergeTimes = database.prepare(`
+    UPDATE step_instances
+    SET
+      started_at = COALESCE(
+        started_at,
+        (SELECT u.started_at FROM step_instances u
+          WHERE u.pair_id = step_instances.pair_id AND u.action_key = ?)
+      ),
+      completed_at = (
+        SELECT u.completed_at FROM step_instances u
+          WHERE u.pair_id = step_instances.pair_id AND u.action_key = ?
+      ),
+      duration_sec = NULL
+    WHERE action_key = ?
+      AND EXISTS (
+        SELECT 1 FROM step_instances u
+        WHERE u.pair_id = step_instances.pair_id AND u.action_key = ?
+      );
+  `);
+  mergeTimes.run(
+    "unplug_downlink_sw1",
+    "unplug_downlink_sw1",
+    "label_sw1",
+    "unplug_downlink_sw1"
+  );
+  mergeTimes.run(
+    "unplug_downlink_sw2",
+    "unplug_downlink_sw2",
+    "label_sw2",
+    "unplug_downlink_sw2"
+  );
+
+  // 2) 重算合并步耗时。时间为本地时间字符串，strftime 按 UTC 解析但两端一致，差值不受影响。
+  database.exec(`
+    UPDATE step_instances
+    SET duration_sec = MAX(
+      0,
+      CAST(strftime('%s', completed_at) - strftime('%s', started_at) AS INTEGER)
+    )
+    WHERE action_key IN ('label_sw1', 'label_sw2')
+      AND started_at IS NOT NULL
+      AND completed_at IS NOT NULL;
+  `);
+
+  // 3) 删除已被合并的 Unplug 步骤，并统一合并步文案。
+  //    这里必须再刷一次 label：label_sw2 是由 migrateAddLabelSw2 在 migrateStepLabels
+  //    之后才插入的，其 label 列仍是旧文案 'Label'。
+  database.exec(`
+    DELETE FROM step_instances
+    WHERE action_key IN ('unplug_downlink_sw1', 'unplug_downlink_sw2');
+
+    UPDATE step_instances
+    SET label = 'Label and Unplug Downlinks'
+    WHERE action_key IN ('label_sw1', 'label_sw2');
+  `);
+
+  // 4) 按权威布局重排 step_order。先落到不可能与现有数据冲突的临时负值（-1001 起），
+  //    再落到权威正值，规避 UNIQUE(pair_id, step_order) 冲突；
+  //    历史遗留的 -1..-16 负值也会在此被修正。
   const toTemp = database.prepare(
     "UPDATE step_instances SET step_order = ? WHERE action_key = ?"
   );
   const toFinal = database.prepare(
     "UPDATE step_instances SET step_order = ? WHERE action_key = ?"
   );
-  // 先把每个 action_key 落到唯一的临时负值（-order），避免与现有值撞 UNIQUE(pair_id, step_order)；
-  // 再落到权威正值。临时值 -1..-16 各不相同，且与目标正值不重叠，故两段均无冲突。
-  for (const step of PIPELINE_STEPS) toTemp.run(-step.order, step.actionKey);
+  for (const step of PIPELINE_STEPS) toTemp.run(-(1000 + step.order), step.actionKey);
   for (const step of PIPELINE_STEPS) toFinal.run(step.order, step.actionKey);
 
   database.exec(`PRAGMA user_version = ${TARGET_VERSION}`);
@@ -255,6 +317,11 @@ function migrateStepLabels(database: DatabaseSync) {
     SET label = 'Plugin Downlinks'
     WHERE action_key IN ('downlink_sw1', 'downlink_sw2')
       AND label = 'Plug in Downlink';
+
+    UPDATE step_instances
+    SET label = 'Label and Unplug Downlinks'
+    WHERE action_key IN ('label_sw1', 'label_sw2')
+      AND label = 'Label';
   `);
 }
 
