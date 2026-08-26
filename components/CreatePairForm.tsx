@@ -12,6 +12,7 @@ export function CreatePairForm({ onCreated }: CreatePairFormProps) {
   const [rack, setRack] = useState("");
   const [footprint, setFootprint] = useState("");
   const [owner, setOwner] = useState("");
+  const [esxiCheck, setEsxiCheck] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -23,7 +24,14 @@ export function CreatePairForm({ onCreated }: CreatePairFormProps) {
       const res = await fetch("/api/pairs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ switch1, switch2, rack, footprint, owner }),
+        body: JSON.stringify({
+          switch1,
+          switch2,
+          rack,
+          footprint,
+          owner,
+          esxiCheck,
+        }),
       });
       const data = (await res.json()) as { error?: string };
       if (!res.ok) throw new Error(data.error ?? "创建失败");
@@ -32,6 +40,7 @@ export function CreatePairForm({ onCreated }: CreatePairFormProps) {
       setRack("");
       setFootprint("");
       setOwner("");
+      setEsxiCheck(false);
       onCreated();
     } catch (err) {
       setError(err instanceof Error ? err.message : "创建失败");
@@ -107,6 +116,18 @@ export function CreatePairForm({ onCreated }: CreatePairFormProps) {
           className="w-36 rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
         />
       </div>
+      <label
+        className="flex cursor-pointer items-center gap-2 self-end rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+        title="勾选后插入三次 Esxi Check（esxi 负责）：每台交换机的 Label and Unplug Downlinks 与 Decommission 之间各一次，流水线末尾再收尾一次。创建后不可更改"
+      >
+        <input
+          type="checkbox"
+          checked={esxiCheck}
+          onChange={(e) => setEsxiCheck(e.target.checked)}
+          className="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+        />
+        Esxi Check
+      </label>
       <button
         type="submit"
         disabled={submitting}

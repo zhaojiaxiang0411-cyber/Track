@@ -11,6 +11,8 @@ function filterPairs(all: PairWithSteps[], filter: PairFilter): PairWithSteps[] 
       return all.filter((p) => p.waiting_team === "A");
     case "waiting_b":
       return all.filter((p) => p.waiting_team === "B");
+    case "waiting_c":
+      return all.filter((p) => p.waiting_team === "C");
     case "completed":
       return all.filter((p) => p.status === "completed");
     default:
@@ -88,6 +90,7 @@ export function usePairs(filter: PairFilter, enabled: boolean) {
       all: allPairs.length,
       waiting_a: allPairs.filter((p) => p.waiting_team === "A").length,
       waiting_b: allPairs.filter((p) => p.waiting_team === "B").length,
+      waiting_c: allPairs.filter((p) => p.waiting_team === "C").length,
       completed: allPairs.filter((p) => p.status === "completed").length,
     }),
     [allPairs]

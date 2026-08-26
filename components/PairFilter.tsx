@@ -7,6 +7,7 @@ const FILTERS: { value: Filter; label: string; dotColor?: string }[] = [
   { value: "all", label: "全部", dotColor: "bg-slate-400" },
   { value: "waiting_a", label: `等 ${teamLabel("A")}`, dotColor: "bg-blue-600" },
   { value: "waiting_b", label: `等 ${teamLabel("B")}`, dotColor: "bg-orange-600" },
+  { value: "waiting_c", label: `等 ${teamLabel("C")}`, dotColor: "bg-violet-600" },
   { value: "completed", label: "已完成", dotColor: "bg-emerald-600" },
 ];
 

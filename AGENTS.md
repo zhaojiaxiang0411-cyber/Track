@@ -6,7 +6,7 @@
 
 **DC Refresh Pipelines 协作工具**：用于成对交换机（如 `201` / `202`）替换维护窗口的 Web 协作跟踪工具。
 
-- 两个 Team 通过颜色状态协作，按固定顺序逐步完成一条 14 步流水线。
+- 多个 Team 通过颜色状态协作，按固定顺序逐步完成一条流水线（14 步；勾选 Esxi Check 后 17 步）。
 - 自动记录每步的开始 / 完成时间与耗时，支持多个 Pair（成对交换机）并行跟踪。
 - 通过 SSE 实时推送，任意一方完成步骤后，其他人浏览器即时看到更新。
 - 支持登录与基于角色的权限控制，以及全量时间记录的 CSV 导出。
@@ -19,12 +19,18 @@
 |-----------|----------|------|--------------|
 | `A` | **cisco** | 蓝色 | Pipeline Start / Snapshot / Decommission / Register / Post Check |
 | `B` | **homison** | 橙色 | Label and Unplug Downlinks / Rack & Plugin Uplinks / Plugin Downlinks |
+| `C` | **esxi** | 紫色 | Esxi Check ×3（可选步骤，无独立账号，由 `cisco` 代为点击） |
+
+> `C` 用紫色而非绿色：绿色（emerald）已被「已完成」状态占用。配色集中在 `lib/teamStyles.ts`。
 
 | 角色 `Role` | 账号 | 权限 |
 |-------------|------|------|
-| `admin` | `cisco` | 全部：完成任意步骤、新建/删除 pipeline、改全部 Info、导出 |
+| `admin` | `cisco` | 全部：完成任意步骤（含 Team C）、新建/删除 pipeline、改全部 Info、导出 |
 | `homison` | `homison` | 完成 Team B 步骤、仅改 Info(footprint)、导出 |
 | `guest` | 未登录 | 只读：查看、实时更新、导出 CSV |
+
+> Team C 没有对应角色：`canCompleteStep` 中 `homison` 的判断是 `team === "B"`，天然排除 C，
+> 因此 Esxi Check 只有 `admin` 能点。**勿把该判断改成 `team !== "A"`**。
 
 ## 2. 技术栈
 
@@ -55,7 +61,8 @@ hooks/
   usePairs.ts                # 拉取 pairs + SSE 订阅 + 最近更新高亮
 lib/
   types.ts                   # 全部 TypeScript 类型
-  pipeline.ts                # 流水线步骤模板（单一事实来源）
+  pipeline.ts                # 流水线步骤模板（单一事实来源）+ buildPipelineSteps
+  teamStyles.ts              # Team 配色（Tailwind 类名字面量，服务端/客户端共用）
   db.ts                      # SQLite 连接、建表、迁移
   pairs.ts                   # 核心业务逻辑（CRUD、完成步骤、CSV）
   auth.ts                    # 会话签名/校验、账号、认证
@@ -81,43 +88,67 @@ Dockerfile / .dockerignore   # 容器化
 
 数据库表（见 `lib/db.ts`）：
 
-- **`pairs`**：`id, switch1, switch2, rack, footprint, owner, status('active'|'completed'), created_at`
-- **`step_instances`**：`id, pair_id(FK,级联删除), step_order, action_key, team, label, started_at, completed_at, duration_sec`，唯一约束 `(pair_id, step_order)`
+- **`pairs`**：`id, switch1, switch2, rack, footprint, owner, status('active'|'completed'), esxi_check(0/1), created_at`
+- **`step_instances`**：`id, pair_id(FK,级联删除), step_order, action_key, team('A'|'B'|'C'), label, started_at, completed_at, duration_sec`，唯一约束 `(pair_id, step_order)`
 
-关键类型见 `lib/types.ts`：`Pair` / `StepInstance` / `PairWithSteps`（含 `current_step_order`、`waiting_team`、`total_duration_sec`）/ `Role` / `SessionUser`。
+关键类型见 `lib/types.ts`：`Pair`（含 `esxi_check`）/ `StepInstance` / `PairWithSteps`（含 `current_step_order`、`waiting_team`、`total_duration_sec`）/ `Role` / `SessionUser`。
 
-### 流水线步骤（14 步，定义于 `lib/pipeline.ts` — 单一事实来源）
+### 流水线步骤（定义于 `lib/pipeline.ts` — 单一事实来源）
 
-| # | Action(label) | Team | Phase |
-|---|---------------|------|-------|
-| 1 | Pipeline Start | A | 全局 |
-| 2 | Snapshot | A | 全局 |
-| 3 | Label and Unplug Downlinks | B | SW1 |
-| 4 | Decommission | A | SW1 |
-| 5 | Rack and Plugin Uplinks | B | SW1 |
-| 6 | Register | A | SW1 |
-| 7 | Plugin Downlinks | B | SW1 |
-| 8 | Post Check | A | SW1 |
-| 9–14 | 同 3–8 流程对称重复 | B/A | SW2 |
+基础布局 14 步；`pairs.esxi_check = 1` 时由 `buildPipelineSteps({ esxiCheck: true })` 插入三个 Esxi Check，共 17 步：
 
-> 注：`README.md` 步骤表已同步为 14 步；如两者出现分歧，**以 `lib/pipeline.ts` 为准**。
+| # (14 步) | # (17 步) | Action(label) | Team | Phase |
+|---|---|---------------|------|-------|
+| 1 | 1 | Pipeline Start | A | 全局 |
+| 2 | 2 | Snapshot | A | 全局 |
+| 3 | 3 | Label and Unplug Downlinks | B | SW1 |
+| — | 4 | **Esxi Check**（可选） | C | SW1 |
+| 4 | 5 | Decommission | A | SW1 |
+| 5 | 6 | Rack and Plugin Uplinks | B | SW1 |
+| 6 | 7 | Register | A | SW1 |
+| 7 | 8 | Plugin Downlinks | B | SW1 |
+| 8 | 9 | Post Check | A | SW1 |
+| 9–14 | 10–16 | 同上流程对称重复（含 SW2 的 Esxi Check = 11） | B/C/A | SW2 |
+| — | 17 | **Esxi Check**（可选，收尾） | C | 全局 |
+
+> 注：`README.md` 步骤表已同步；如两者出现分歧，**以 `lib/pipeline.ts` 为准**。
 > 贴标签与拔下联原为两步（`label_*` / `unplug_downlink_*`），现合并为一步，`action_key` 沿用 `label_sw1` / `label_sw2`。
+
+### 步骤身份一律用 `action_key`，不要用 `step_order`（重要）
+
+流水线长度按 pair 变化，同一个 `step_order` 在 14 步与 17 步布局中指向不同步骤。因此：
+
+- `resolveStepLabel` / `resolveStepPhase` / `resolveStepSwitch` / `isExcludedFromTiming` 全部接收 `action_key`。
+- 计时基准与 CSV 排除项用 `TIMING_BASE_ACTION_KEY`（`snapshot_sw1`）与 `PIPELINE_START_ACTION_KEY`（`mw_start`），**不要写 `step_order === 2`**。
+- 「最后一步」「越界」判断取该 pair 自身的最大 `step_order`（见 `completeStep`），已删除全局 `TOTAL_STEPS`。
+- 新增可选步骤：在 `pipeline.ts` 的 `OPTIONAL_STEP_DEFS` 里声明锚点（`anchorAfter`），order 由 `buildPipelineSteps` 自动连续编号。锚定末步（如 `post_check_sw2`）即可把步骤追加到流水线最后。
+- **总览进度点的对齐基准是 `FULL_PIPELINE_STEPS`**（含全部可选步骤的完整布局）。`PipelineProgressDots` 开启 `alignToFullLayout` 后按该布局逐列渲染，pair 缺失的可选步骤渲染等宽空位，使 14 步与 17 步 pair 的同一步骤竖向对齐。因此可选步骤必须声明在 `OPTIONAL_STEP_DEFS` 里（基准需为所有 pair 布局的超集），否则该步骤会落在基准之外、被追加到行尾。中间空位不可裁剪（会让后续列左移），只有行尾空位可裁。
+- 三次 Esxi Check 的 `action_key` 分别是 `esxi_check_sw1` / `esxi_check_sw2` / `esxi_check_final`，label 同为 `Esxi Check`，靠 phase（SW1 / SW2 / 全局）区分。
 
 ## 5. 关键业务规则（改代码务必遵守）
 
 1. **严格顺序执行**：只能完成 `current_step_order`（第一个未完成步骤），否则 `completeStep` 抛错。
-2. **计时基准**：总耗时从 **Snapshot（步骤 2）完成时刻** 起算，**不计入** 步骤 1（Pipeline Start）和步骤 2（Snapshot）本身的耗时。CSV 导出也排除步骤 1、2。
+2. **计时基准**：总耗时从 **Snapshot（`snapshot_sw1`）完成时刻** 起算，**不计入** Pipeline Start（`mw_start`）与 Snapshot 本身的耗时。CSV 导出同样排除这两步。判断统一走 `isExcludedFromTiming(action_key)`。
 3. **时区**：统一以**本地时间**（东八区）字符串 `YYYY-MM-DD HH:mm:ss` 写库与显示。
    - **必须用 `nowLocalString()`，禁止用 `new Date().toISOString()`**（那是 UTC，会偏 8 小时）。
    - 解析用 `parseLocalTimeMs()`（`lib/format.ts`）。
 4. **完成步骤的连锁**：完成某步时写入 `completed_at` / `duration_sec`，并把下一步的 `started_at` 置为该完成时刻；最后一步完成则把 pair `status` 置 `completed`。
 5. **权限三处一致**：判断逻辑集中在 `lib/permissions.ts`（`canCompleteStep` / `canManagePairs` / `canEditInfo`），前端按钮与服务端 API 都调用它。**前端禁用仅为体验，真正的强制在服务端 API**（返回 401/403）。
    - 注意 PATCH 改 Info：`footprint` 任意登录用户可改；`rack` / `owner` 仅 admin 可改。
-6. **CSV 导出安全**：`buildExportCsv` 用 `csvCell` 生成单元格——
+   - Team C（esxi）步骤只有 admin 能完成，见上文角色表下的告警。
+6. **`esxi_check` 创建后不可改**：`updatePairInfo` 不接受该字段。改变它需要增删步骤行并重排 `step_order`，当前不支持；如需支持要另做一套「动态插入步骤」的事务逻辑。
+7. **CSV 导出安全**：`buildExportCsv` 用 `csvCell` 生成单元格——
    - **中和公式注入**：对以 `= + - @` 或控制字符（Tab/CR）开头的值加前缀单引号，防止 Excel/Sheets 把用户可控字段（如 switch 名称）当公式执行。
    - **RFC 4180 转义**：含逗号/引号/换行(`\r` 或 `\n`)的值用双引号包裹并将内部引号翻倍。
    - **行分隔用 `\r\n`（CRLF）**，避免仅 `\n` 在部分工具解析异常。
    - 新增/修改导出字段时务必走 `csvCell`，勿直接拼接原始值。
+8. **CSV 汇总统计表**：`buildExportCsv` 在明细行之后空一行，追加 `buildSummarySection` 生成的汇总表（对齐现场交付报表的形式）。
+   - 结构：标题行（`Change on <日期> (<footprint>) - started at … - completed at … HKT`）+ 分组表头行（`Homison & ESXi` / `Cisco`）+ 列名行 + 每台交换机一行（一个 pair 两行，SW1 在前）。
+   - 列名与编号（`1. Labing & Unplug downlink` 等）是**报表口径**，与 `pipeline.ts` 的步骤 `label` 不同名，映射表 `SUMMARY_HOMISON_COLUMNS` / `SUMMARY_CISCO_COLUMNS` 定义在 `lib/pairs.ts`，按 `${keyPrefix}_sw${1|2}` 拼出 `action_key`。改步骤 `action_key` 时要同步这里。
+   - 耗时单位为分钟、保留 1 位小数；`Overall` 由**秒**累加后再换算，避免两个小计各自四舍五入后相加产生偏差。
+   - **「不适用」与「未完成」要区分**：步骤在该 pair 中不存在（未勾选 Esxi Check）→ 留空且不影响小计；步骤存在但 `duration_sec` 为 null → 留空且该组小计、`Overall` 一并留空，行尾 `Note` 标 `未完成`。
+   - `8. ESXi final check for a pair`（`esxi_check_final`）是 pair 级步骤，只写在该 pair 第一行，第二行留空（对应报表里的合并单元格；CSV 无合并单元格，只能这样近似）。
+   - `Total Port#` / `ESXi Port#` 数据库无对应字段，**固定留空供人工填写**；若要真填需给 `pairs` 加列并做迁移。
 
 ## 6. 认证与会话（`lib/auth.ts`）
 
@@ -150,16 +181,20 @@ Dockerfile / .dockerignore   # 容器化
 - `migrateShiftLegacyUtcTimestamps`：用 `PRAGMA user_version`（目标 1）一次性把早期 UTC 旧数据 +8 小时校正。
 - `migrateAddLabelSw2`：用 `PRAGMA user_version`（目标 2）一次性为 SW2 在 Decommission 前补 `label_sw2`（步骤 9）。
 - `migrateAddUnplugDownlinks`：用 `PRAGMA user_version`（目标 3）一次性在 Label 与 Decommission 之间为 SW1/SW2 各补 `unplug_downlink_*`（步骤 4、11），并顺移后续步骤到 5–16；对已完成同 phase Decommission 的历史 pair 直接标记该步骤为已完成。
-- `migrateMergeLabelAndUnplug`：用 `PRAGMA user_version`（目标 5）一次性把 `unplug_downlink_*` 合并进同 phase 的 `label_*`（16 步 → 14 步）。合并步 `started_at` 取原 Label 开始时刻、`completed_at` 取原 Unplug 完成时刻并重算耗时；**原 Unplug 未完成则合并步整体视为未完成**，交回 B 组重做。随后删除 Unplug 行、统一文案为 `Label and Unplug Downlinks`，并按 `pipeline.ts` 权威布局重排全部 `step_order`（临时值用 `-1001` 起，避免与历史遗留负值撞 `UNIQUE(pair_id, step_order)`）。该重排取代了原 `migrateNormalizeStepOrder`（目标 4），后者已删除。
+- `migrateMergeLabelAndUnplug`：用 `PRAGMA user_version`（目标 5）一次性把 `unplug_downlink_*` 合并进同 phase 的 `label_*`（16 步 → 14 步）。合并步 `started_at` 取原 Label 开始时刻、`completed_at` 取原 Unplug 完成时刻并重算耗时；**原 Unplug 未完成则合并步整体视为未完成**，交回 B 组重做。随后删除 Unplug 行、统一文案为 `Label and Unplug Downlinks`，并按 `LEGACY_LAYOUT_V5` 快照重排全部 `step_order`（临时值用 `-1001` 起，避免与历史遗留负值撞 `UNIQUE(pair_id, step_order)`）。该重排取代了原 `migrateNormalizeStepOrder`（目标 4），后者已删除。
+- `migrateAddEsxiCheckColumn`：按 `PRAGMA table_info` 幂等为 `pairs` 加 `esxi_check INTEGER NOT NULL DEFAULT 0`（历史 pair 一律 0，保持 14 步布局）。
+- `migrateAllowTeamC`：用 `PRAGMA user_version`（目标 6）一次性把 `step_instances.team` 的 CHECK 放宽到 `('A','B','C')`。SQLite 无法 `ALTER` 改 CHECK，只能**重建表**：建新表 → `INSERT SELECT` 全量复制 → `DROP` 旧表 → `RENAME` → 重建 `idx_step_instances_pair_id`。另有守护：若建表时已含 `'C'`（新库），跳过重建只推进版本号。
 
 > 改 schema/步骤时：用 `PRAGMA user_version` 守护「只执行一次」的迁移，列新增用 `PRAGMA table_info` 判断幂等；重排 `step_order` 时用「先取负、再落值」两段避免撞唯一约束。
+>
+> **历史迁移不得引用 `pipeline.ts` 的现行布局**：布局会随需求演进，历史迁移必须钉死在当时的快照上（如 `LEGACY_LAYOUT_V5`），否则今后改流水线会反过来篡改旧迁移的语义。
 
 ## 9. API 速查
 
 | 方法 | 路径 | 权限 | 说明 |
 |------|------|------|------|
-| GET | `/api/pairs?filter=all` | 公开 | 列出 Pair（filter: all/waiting_a/waiting_b/completed） |
-| POST | `/api/pairs` | admin | 新建 `{switch1, switch2, rack?, footprint?, owner?}` |
+| GET | `/api/pairs?filter=all` | 公开 | 列出 Pair（filter: all/waiting_a/waiting_b/waiting_c/completed） |
+| POST | `/api/pairs` | admin | 新建 `{switch1, switch2, rack?, footprint?, owner?, esxiCheck?}`（`esxiCheck` 仅严格 `true` 视为开启） |
 | GET | `/api/pairs/:id` | 公开 | 单个 Pair |
 | PATCH | `/api/pairs/:id` | admin/homison | 改 Info（footprint 任意登录可改；rack/owner 仅 admin） |
 | DELETE | `/api/pairs/:id` | admin | 删除 Pair |

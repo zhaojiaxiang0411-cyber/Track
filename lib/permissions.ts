@@ -7,6 +7,8 @@ import type { Role, Team } from "./types";
 // - admin（cisco）：任意步骤
 // - homison：仅 Team B（homison）步骤
 // - guest（未登录）：不可
+// Team C（esxi）没有独立账号，其步骤由 admin 代为点击：
+// 这里 homison 的 team === "B" 判断已自然排除 C，勿改成 team !== "A"。
 export function canCompleteStep(role: Role, team: Team): boolean {
   if (role === "admin") return true;
   if (role === "homison") return team === "B";

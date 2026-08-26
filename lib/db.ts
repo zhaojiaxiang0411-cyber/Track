@@ -1,7 +1,6 @@
 import fs from "fs";
 import path from "path";
 import { DatabaseSync } from "node:sqlite";
-import { PIPELINE_STEPS } from "./pipeline";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const DB_PATH = path.join(DATA_DIR, "track.db");
@@ -24,6 +23,7 @@ function initSchema(database: DatabaseSync) {
       footprint TEXT,
       owner TEXT,
       status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'completed')),
+      esxi_check INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
     );
 
@@ -32,7 +32,7 @@ function initSchema(database: DatabaseSync) {
       pair_id INTEGER NOT NULL,
       step_order INTEGER NOT NULL,
       action_key TEXT NOT NULL,
-      team TEXT NOT NULL CHECK (team IN ('A', 'B')),
+      team TEXT NOT NULL CHECK (team IN ('A', 'B', 'C')),
       label TEXT NOT NULL,
       started_at TEXT,
       completed_at TEXT,
@@ -55,10 +55,77 @@ function initSchema(database: DatabaseSync) {
     migrateAddLabelSw2(database);
     migrateAddUnplugDownlinks(database);
     migrateMergeLabelAndUnplug(database);
+    migrateAddEsxiCheckColumn(database);
+    migrateAllowTeamC(database);
     database.exec("COMMIT");
   } catch (error) {
     database.exec("ROLLBACK");
     throw error;
+  }
+}
+
+// 一次性迁移：放宽 step_instances 的 team 约束到 ('A','B','C')，以容纳
+// Team C（esxi）的 Esxi Check 步骤。SQLite 无法 ALTER 修改 CHECK，只能重建表：
+// 建新表 → 全量复制 → 删旧表 → 改名 → 重建索引。
+// 列结构与数据均不变，仅放宽约束；本函数运行在 initSchema 的迁移事务内，
+// 任一步失败会整体 ROLLBACK。用 user_version 保证只执行一次，
+// 并对「新库建表时已含 C」的情况直接跳过重建。
+function migrateAllowTeamC(database: DatabaseSync) {
+  const TARGET_VERSION = 6;
+  const row = database.prepare("PRAGMA user_version").get() as
+    | { user_version: number }
+    | undefined;
+  const current = row?.user_version ?? 0;
+  if (current >= TARGET_VERSION) return;
+
+  const schema = database
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?")
+    .get("step_instances") as { sql?: string } | undefined;
+  const alreadyAllowsC = (schema?.sql ?? "").includes("'C'");
+
+  if (!alreadyAllowsC) {
+    database.exec(`
+      CREATE TABLE step_instances_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        pair_id INTEGER NOT NULL,
+        step_order INTEGER NOT NULL,
+        action_key TEXT NOT NULL,
+        team TEXT NOT NULL CHECK (team IN ('A', 'B', 'C')),
+        label TEXT NOT NULL,
+        started_at TEXT,
+        completed_at TEXT,
+        duration_sec INTEGER,
+        FOREIGN KEY (pair_id) REFERENCES pairs(id) ON DELETE CASCADE,
+        UNIQUE (pair_id, step_order)
+      );
+
+      INSERT INTO step_instances_new
+        (id, pair_id, step_order, action_key, team, label, started_at, completed_at, duration_sec)
+      SELECT
+        id, pair_id, step_order, action_key, team, label, started_at, completed_at, duration_sec
+      FROM step_instances;
+
+      DROP TABLE step_instances;
+
+      ALTER TABLE step_instances_new RENAME TO step_instances;
+
+      CREATE INDEX IF NOT EXISTS idx_step_instances_pair_id ON step_instances(pair_id);
+    `);
+  }
+
+  database.exec(`PRAGMA user_version = ${TARGET_VERSION}`);
+}
+
+// 按需为 pairs 增加 esxi_check 列（是否包含 Esxi Check 步骤）。
+// 历史 pair 一律为 0，保持原有 14 步布局不受影响。
+function migrateAddEsxiCheckColumn(database: DatabaseSync) {
+  const columns = database
+    .prepare("PRAGMA table_info(pairs)")
+    .all() as Array<{ name: string }>;
+  if (!columns.some((col) => col.name === "esxi_check")) {
+    database.exec(
+      "ALTER TABLE pairs ADD COLUMN esxi_check INTEGER NOT NULL DEFAULT 0"
+    );
   }
 }
 
@@ -67,7 +134,7 @@ function initSchema(database: DatabaseSync) {
 // 合并语义：合并步的 started_at 取原 Label 的开始时刻，completed_at 取原 Unplug 的完成时刻，
 // duration 按两者重算；若原 Unplug 未完成，则合并步整体视为未完成（两步都做完才算完成），
 // 由 B 组重新点一次，避免把「只贴了标签、还没拔线」的流程当作已完成。
-// 本迁移同时按 pipeline.ts 的权威布局重排全部 step_order，
+// 本迁移同时按 LEGACY_LAYOUT_V5 快照重排全部 step_order，
 // 因此取代了原 migrateNormalizeStepOrder（user_version 4）的归一修复。
 // 用 user_version 保证只执行一次。
 function migrateMergeLabelAndUnplug(database: DatabaseSync) {
@@ -136,7 +203,7 @@ function migrateMergeLabelAndUnplug(database: DatabaseSync) {
     WHERE action_key IN ('label_sw1', 'label_sw2');
   `);
 
-  // 4) 按权威布局重排 step_order。先落到不可能与现有数据冲突的临时负值（-1001 起），
+  // 4) 按 v5 布局快照重排 step_order。先落到不可能与现有数据冲突的临时负值（-1001 起），
   //    再落到权威正值，规避 UNIQUE(pair_id, step_order) 冲突；
   //    历史遗留的 -1..-16 负值也会在此被修正。
   const toTemp = database.prepare(
@@ -145,11 +212,35 @@ function migrateMergeLabelAndUnplug(database: DatabaseSync) {
   const toFinal = database.prepare(
     "UPDATE step_instances SET step_order = ? WHERE action_key = ?"
   );
-  for (const step of PIPELINE_STEPS) toTemp.run(-(1000 + step.order), step.actionKey);
-  for (const step of PIPELINE_STEPS) toFinal.run(step.order, step.actionKey);
+  for (const [actionKey, order] of LEGACY_LAYOUT_V5) {
+    toTemp.run(-(1000 + order), actionKey);
+  }
+  for (const [actionKey, order] of LEGACY_LAYOUT_V5) {
+    toFinal.run(order, actionKey);
+  }
 
   database.exec(`PRAGMA user_version = ${TARGET_VERSION}`);
 }
+
+// v5 迁移当时的权威布局快照（14 步，无可选步骤）。
+// 历史迁移必须钉死在「当时」的布局上，不能引用 pipeline.ts 的现行布局，
+// 否则今后调整流水线会反过来篡改这次迁移的语义。
+const LEGACY_LAYOUT_V5: Array<[string, number]> = [
+  ["mw_start", 1],
+  ["snapshot_sw1", 2],
+  ["label_sw1", 3],
+  ["decomm_sw1", 4],
+  ["uplink_only_sw1", 5],
+  ["commission_sw1", 6],
+  ["downlink_sw1", 7],
+  ["post_check_sw1", 8],
+  ["label_sw2", 9],
+  ["decomm_sw2", 10],
+  ["uplink_only_sw2", 11],
+  ["commission_sw2", 12],
+  ["downlink_sw2", 13],
+  ["post_check_sw2", 14],
+];
 
 // 一次性迁移：在 Label 与 Decommission 之间，为 SW1、SW2 各插入一个
 // Unplug Downlinks（拔下联）步骤，归属 B 组。插入后原有步骤顺移：

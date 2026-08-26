@@ -1,6 +1,7 @@
 "use client";
 
 import { teamLabel } from "@/lib/format";
+import { teamStyle } from "@/lib/teamStyles";
 import type { PairWithSteps } from "@/lib/types";
 import { PipelineProgressDots } from "./PipelineProgressDots";
 
@@ -18,6 +19,7 @@ export function PipelineOverview({
   const total = pairs.length;
   const waitingA = pairs.filter((p) => p.waiting_team === "A").length;
   const waitingB = pairs.filter((p) => p.waiting_team === "B").length;
+  const waitingC = pairs.filter((p) => p.waiting_team === "C").length;
   const completed = pairs.filter((p) => p.status === "completed").length;
   const inProgress = total - completed;
 
@@ -40,6 +42,13 @@ export function PipelineOverview({
             count={waitingB}
             color="orange"
           />
+          {waitingC > 0 && (
+            <StatBadge
+              label={`等 ${teamLabel("C")}`}
+              count={waitingC}
+              color="violet"
+            />
+          )}
           <StatBadge label="已完成" count={completed} color="emerald" />
         </div>
       </div>
@@ -74,6 +83,7 @@ export function PipelineOverview({
               switch1={pair.switch1}
               switch2={pair.switch2}
               compact
+              alignToFullLayout
             />
             {justUpdated && (
               <span className="inline-flex animate-pulse items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
@@ -84,13 +94,11 @@ export function PipelineOverview({
             <span className="ml-auto text-[10px] text-slate-400">
               {pair.status === "completed" ? (
                 <span className="font-medium text-emerald-600">已完成</span>
-              ) : pair.waiting_team === "A" ? (
-                <span className="font-medium text-blue-600">
-                  等 {teamLabel("A")} #{pair.current_step_order}
-                </span>
-              ) : pair.waiting_team === "B" ? (
-                <span className="font-medium text-orange-600">
-                  等 {teamLabel("B")} #{pair.current_step_order}
+              ) : pair.waiting_team ? (
+                <span
+                  className={`font-medium ${teamStyle(pair.waiting_team).text}`}
+                >
+                  等 {teamLabel(pair.waiting_team)} #{pair.current_step_order}
                 </span>
               ) : null}
             </span>
@@ -109,33 +117,30 @@ function StatBadge({
 }: {
   label: string;
   count: number;
-  color: "slate" | "amber" | "blue" | "orange" | "emerald";
+  color: "slate" | "amber" | "blue" | "orange" | "violet" | "emerald";
 }) {
   const colors = {
     slate: "bg-slate-100 text-slate-700",
     amber: "bg-amber-100 text-amber-800",
     blue: "bg-blue-100 text-blue-800",
     orange: "bg-orange-100 text-orange-800",
+    violet: "bg-violet-100 text-violet-800",
     emerald: "bg-emerald-100 text-emerald-800",
+  };
+  const dots = {
+    slate: "bg-slate-400",
+    amber: "bg-amber-500",
+    blue: "bg-blue-600",
+    orange: "bg-orange-600",
+    violet: "bg-violet-600",
+    emerald: "bg-emerald-600",
   };
 
   return (
     <span
       className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-medium ${colors[color]}`}
     >
-      <span
-        className={`inline-block h-2 w-2 rounded-full ${
-          color === "blue"
-            ? "bg-blue-600"
-            : color === "orange"
-              ? "bg-orange-600"
-              : color === "emerald"
-                ? "bg-emerald-600"
-                : color === "amber"
-                  ? "bg-amber-500"
-                  : "bg-slate-400"
-        }`}
-      />
+      <span className={`inline-block h-2 w-2 rounded-full ${dots[color]}`} />
       {label}
       <span className="tabular-nums font-bold">{count}</span>
     </span>

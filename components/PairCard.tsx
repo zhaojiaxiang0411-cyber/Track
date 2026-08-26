@@ -2,6 +2,8 @@
 
 import { formatDateTime, formatDuration, teamLabel } from "@/lib/format";
 import { canCompleteStep } from "@/lib/permissions";
+import { isExcludedFromTiming } from "@/lib/pipeline";
+import { teamStyle } from "@/lib/teamStyles";
 import type { PairWithSteps, Role } from "@/lib/types";
 import { useState } from "react";
 import { LiveDuration } from "./LiveDuration";
@@ -102,29 +104,26 @@ export function PairCard({
     pair.current_step_order !== null
       ? pair.steps.find((s) => s.step_order === pair.current_step_order)
       : undefined;
-  // 进行中的耗时仅对步骤 3 及之后显示（排除 Pipeline Start / Snapshot）
+  // 进行中的耗时排除 Pipeline Start / Snapshot，与总耗时口径一致
   const liveStep =
-    currentStep && currentStep.step_order > 2 && currentStep.started_at
+    currentStep &&
+    !isExcludedFromTiming(currentStep.action_key) &&
+    currentStep.started_at
       ? currentStep
       : undefined;
+
+  const waitingTeam = pair.status === "completed" ? null : pair.waiting_team;
 
   const statusBadge =
     pair.status === "completed" ? (
       <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
         Completed
       </span>
-    ) : pair.waiting_team === "A" ? (
-      <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-800">
-        等待 {teamLabel("A")} · 步骤 #{pair.current_step_order}
-        {liveStep && (
-          <span className="ml-1 font-normal">
-            · 已进行 <LiveDuration startedAt={liveStep.started_at!} />
-          </span>
-        )}
-      </span>
-    ) : pair.waiting_team === "B" ? (
-      <span className="rounded-full bg-orange-100 px-3 py-1 text-xs font-semibold text-orange-800">
-        等待 {teamLabel("B")} · 步骤 #{pair.current_step_order}
+    ) : waitingTeam ? (
+      <span
+        className={`rounded-full px-3 py-1 text-xs font-semibold ${teamStyle(waitingTeam).badge}`}
+      >
+        等待 {teamLabel(waitingTeam)} · 步骤 #{pair.current_step_order}
         {liveStep && (
           <span className="ml-1 font-normal">
             · 已进行 <LiveDuration startedAt={liveStep.started_at!} />
@@ -159,6 +158,11 @@ export function PairCard({
             {pair.owner && (
               <span className="ml-2 align-middle rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
                 Owner: {pair.owner}
+              </span>
+            )}
+            {pair.esxi_check && (
+              <span className="ml-2 align-middle rounded-full bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-700">
+                含 Esxi Check
               </span>
             )}
             {(canDelete || canEditInfo) && !editing && (

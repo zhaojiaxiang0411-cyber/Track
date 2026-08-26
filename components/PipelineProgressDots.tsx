@@ -1,11 +1,13 @@
 "use client";
 
 import {
+  FULL_PIPELINE_STEPS,
   resolveStepLabel,
   resolveStepPhase,
   resolveStepSwitch,
 } from "@/lib/pipeline";
 import { teamLabel, formatDuration } from "@/lib/format";
+import { teamStyle } from "@/lib/teamStyles";
 import type { StepInstance } from "@/lib/types";
 
 type PipelineProgressDotsProps = {
@@ -18,10 +20,19 @@ type PipelineProgressDotsProps = {
   /** 交换机对，用于在悬停卡片中显示「该步骤对应的交换机」 */
   switch1?: string;
   switch2?: string;
+  /**
+   * 按完整布局对齐：以 FULL_PIPELINE_STEPS 为列基准，缺失的可选步骤留等宽空位。
+   * 仅在多个 pair 上下排列时有意义（总览栏），单个 pair 视图开启只会多出无意义的空位。
+   */
+  alignToFullLayout?: boolean;
 };
 
 /** 与 globals.css 中 blink-strong 动画周期保持一致（毫秒），用于全局同频对齐 */
 const BLINK_PERIOD_MS = 900;
+
+function dotSizeClass(compact: boolean): string {
+  return compact ? "h-2 w-2" : "h-2.5 w-2.5";
+}
 
 function dotClass(
   step: StepInstance,
@@ -29,24 +40,63 @@ function dotClass(
   isCurrent: boolean,
   compact: boolean
 ): string {
-  const size = compact ? "h-2 w-2" : "h-2.5 w-2.5";
-  const base = `rounded-full transition-all duration-300 ${size} `;
+  const base = `rounded-full transition-all duration-300 ${dotSizeClass(compact)} `;
+  const style = teamStyle(step.team);
 
   if (isDone) {
-    return (
-      base + (step.team === "A" ? "bg-blue-600" : "bg-orange-600")
-    );
+    return base + style.dotDone;
   }
   if (isCurrent) {
-    return (
-      base +
-      "ring-2 ring-offset-1 animate-blink-strong " +
-      (step.team === "A"
-        ? "bg-blue-500 ring-blue-500 shadow-[0_0_0_3px_rgba(59,130,246,0.35)]"
-        : "bg-orange-500 ring-orange-500 shadow-[0_0_0_3px_rgba(249,115,22,0.35)]")
-    );
+    return base + "ring-2 ring-offset-1 animate-blink-strong " + style.dotCurrent;
   }
   return base + "bg-slate-200";
+}
+
+/** 一个进度点位：step 为 null 表示该 pair 没有这一步（占位空列，仅用于对齐）。 */
+type DotColumn = {
+  key: string;
+  step: StepInstance | null;
+  phase: string;
+};
+
+const FULL_LAYOUT_ACTION_KEYS = new Set(
+  FULL_PIPELINE_STEPS.map((template) => template.actionKey)
+);
+
+function buildDotColumns(steps: StepInstance[], align: boolean): DotColumn[] {
+  if (!align) {
+    return steps.map((step) => ({
+      key: String(step.id),
+      step,
+      phase: resolveStepPhase(step.action_key),
+    }));
+  }
+
+  const stepByActionKey = new Map(steps.map((step) => [step.action_key, step]));
+  const columns: DotColumn[] = FULL_PIPELINE_STEPS.map((template) => ({
+    key: template.actionKey,
+    step: stepByActionKey.get(template.actionKey) ?? null,
+    phase: template.phase,
+  }));
+
+  // 历史遗留步骤的 action_key 可能不在现行布局中，追加到末尾，避免被静默丢弃。
+  for (const step of steps) {
+    if (FULL_LAYOUT_ACTION_KEYS.has(step.action_key)) continue;
+    columns.push({
+      key: String(step.id),
+      step,
+      phase: resolveStepPhase(step.action_key),
+    });
+  }
+
+  // 末尾的空位（如未勾选 Esxi Check 时的收尾检查）连同它前面的阶段分隔线一起裁掉：
+  // 行尾之后没有内容，裁掉不影响任何点位对齐，却能避免留下一条悬空竖线。
+  // 注意只裁末尾，中间的空位必须保留，否则后续列会整体左移。
+  while (columns.length > 0 && columns[columns.length - 1].step === null) {
+    columns.pop();
+  }
+
+  return columns;
 }
 
 export function PipelineProgressDots({
@@ -56,9 +106,11 @@ export function PipelineProgressDots({
   showTooltip = true,
   switch1,
   switch2,
+  alignToFullLayout = false,
 }: PipelineProgressDotsProps) {
   const doneCount = steps.filter((s) => s.completed_at).length;
   const total = steps.length;
+  const columns = buildDotColumns(steps, alignToFullLayout);
 
   return (
     <div className="flex items-center gap-2">
@@ -68,22 +120,42 @@ export function PipelineProgressDots({
         </span>
       )}
       <div
-        className={`flex flex-wrap items-center ${compact ? "gap-0.5" : "gap-1"}`}
+        className={`flex items-center ${
+          // 对齐模式下不能换行：一旦折行，列基准就失效了
+          alignToFullLayout ? "shrink-0 flex-nowrap" : "flex-wrap"
+        } ${compact ? "gap-0.5" : "gap-1"}`}
         role="img"
         aria-label={`进度 ${doneCount}/${total}`}
       >
-        {steps.map((step, index) => {
+        {columns.map((column, index) => {
+          const prevColumn = index > 0 ? columns[index - 1] : null;
+          // 阶段边界（全局→SW1、SW1→SW2）插入分隔线
+          const showPhaseDivider =
+            prevColumn !== null && prevColumn.phase !== column.phase;
+          const divider = showPhaseDivider ? (
+            <span
+              aria-hidden="true"
+              className={`${compact ? "mx-1 h-2.5" : "mx-1.5 h-3"} w-px shrink-0 rounded-full bg-slate-300`}
+            />
+          ) : null;
+
+          const step = column.step;
+          if (step === null) {
+            return (
+              <span key={column.key} className="inline-flex items-center">
+                {divider}
+                <span
+                  aria-hidden="true"
+                  className={`${dotSizeClass(compact)} shrink-0`}
+                />
+              </span>
+            );
+          }
+
           const isDone = Boolean(step.completed_at);
           const isCurrent = currentStepOrder === step.step_order;
-          const label = resolveStepLabel(step.step_order, step.label);
-          const stepSwitch = resolveStepSwitch(step.step_order, switch1, switch2);
-
-          // 阶段边界（全局→SW1、SW1→SW2）插入分隔线
-          const prevStep = index > 0 ? steps[index - 1] : null;
-          const showPhaseDivider =
-            prevStep !== null &&
-            resolveStepPhase(prevStep.step_order) !==
-              resolveStepPhase(step.step_order);
+          const label = resolveStepLabel(step.action_key, step.label);
+          const stepSwitch = resolveStepSwitch(step.action_key, switch1, switch2);
 
           const statusText = isDone
             ? "已完成"
@@ -97,13 +169,8 @@ export function PipelineProgressDots({
           } · ${statusText}`;
 
           return (
-            <span key={step.id} className="inline-flex items-center">
-              {showPhaseDivider && (
-                <span
-                  aria-hidden="true"
-                  className={`${compact ? "mx-1 h-2.5" : "mx-1.5 h-3"} w-px shrink-0 rounded-full bg-slate-300`}
-                />
-              )}
+            <span key={column.key} className="inline-flex items-center">
+              {divider}
               <span className="group/dot relative inline-flex shrink-0">
               <span
                 className={dotClass(step, isDone, isCurrent, compact)}
@@ -133,9 +200,7 @@ export function PipelineProgressDots({
                       <span
                         className={`inline-block h-1.5 w-1.5 rounded-full ${
                           isDone
-                            ? step.team === "A"
-                              ? "bg-blue-400"
-                              : "bg-orange-400"
+                            ? teamStyle(step.team).tooltipDot
                             : isCurrent
                               ? "bg-amber-300"
                               : "bg-slate-500"

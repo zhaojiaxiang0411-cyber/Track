@@ -68,7 +68,7 @@ export default function HomePage() {
               DC Refresh Pipelines
             </h1>
             <p className="mt-1 text-sm text-slate-500">
-              {teamLabel("A")}（蓝）与 {teamLabel("B")}（橙）协作跟踪 · 实时同步
+              {teamLabel("A")}（蓝）、{teamLabel("B")}（橙）与 {teamLabel("C")}（紫）协作跟踪 · 实时同步
             </p>
           </div>
           <AuthBar
@@ -86,6 +86,10 @@ export default function HomePage() {
           <span className="flex items-center gap-1.5">
             <span className="inline-block h-3 w-3 rounded bg-orange-600" />
             {teamLabel("B")}：Label / Uplink / Downlink
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-3 w-3 rounded bg-violet-600" />
+            {teamLabel("C")}：Esxi Check（可选步骤，由 {teamLabel("A")} 代为点击）
           </span>
         </div>
       </header>

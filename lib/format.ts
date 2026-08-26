@@ -3,6 +3,7 @@ import type { Team } from "./types";
 export const TEAM_LABELS: Record<Team, string> = {
   A: "cisco",
   B: "homison",
+  C: "esxi",
 };
 
 export function teamLabel(team: Team): string {

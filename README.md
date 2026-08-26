@@ -1,23 +1,26 @@
 # DC Refresh Pipelines 协作工具
 
-成对交换机（如 201-202）替换维护窗口的 Web 协作跟踪工具。两个 Team 通过颜色状态协作，自动记录每步完成时间，支持多 Pair 并行。
+成对交换机（如 201-202）替换维护窗口的 Web 协作跟踪工具。各 Team 通过颜色状态协作，自动记录每步完成时间，支持多 Pair 并行。
 
 ## 功能
 
 - 每对交换机 14 步标准流水线，严格顺序执行
-- cisco（蓝色）/ homison（橙色）分工可视化
+- 新建时可勾选 **Esxi Check**：共插入三次——每台交换机的 Label and Unplug Downlinks 与 Decommission 之间各一次，流水线末尾再收尾一次，流水线变为 17 步（创建后不可更改）
+- cisco（蓝色）/ homison（橙色）/ esxi（紫色）分工可视化
 - 一方完成后点击，另一方实时看到可执行步骤（SSE 推送）
 - 记录每步 `started_at`、`completed_at`、`duration_sec`
-- 筛选：全部 / 等 cisco / 等 homison / 已完成
+- 筛选：全部 / 等 cisco / 等 homison / 等 esxi / 已完成
 - CSV 导出全部时间记录
 
 ## 登录与权限
 
-| 身份 | 默认账号 | 查看 | 点 homison 步骤 | 点 cisco 步骤 | 导出 CSV | 删除 pipeline | 新建 pipeline |
-|------|----------|:---:|:---:|:---:|:---:|:---:|:---:|
-| cisco（管理员） | `cisco` / `cisco` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| homison | `homison` / `homison` | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ |
-| 未登录（游客） | — | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ |
+| 身份 | 默认账号 | 查看 | 点 homison 步骤 | 点 cisco 步骤 | 点 esxi 步骤 | 导出 CSV | 删除 pipeline | 新建 pipeline |
+|------|----------|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| cisco（管理员） | `cisco` / `cisco` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| homison | `homison` / `homison` | ✅ | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ |
+| 未登录（游客） | — | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ |
+
+- esxi 没有独立账号：Esxi Check 由 esxi 团队负责执行，但在系统里由 cisco（管理员）代为点击完成。
 
 - 游客（未登录）为**只读**：可查看全部 pipeline、实时更新（SSE）并导出 CSV，但**不能做任何修改**（完成步骤 / 新建 / 删除）。
 - 写操作权限在**服务端 API 强制校验**，前端按钮的禁用/隐藏仅为体验优化，直接调用 API 同样会被拦截（401/403）。
@@ -67,24 +70,29 @@ npm run build && npm start
 
 ## 流水线步骤
 
-| # | Action | Team | Phase |
-|---|--------|------|-------|
-| 1 | Pipeline Start | A（cisco） | 全局 |
-| 2 | Snapshot | A（cisco） | 全局 |
-| 3 | Label and Unplug Downlinks | B（homison） | SW1 |
-| 4 | Decommission | A（cisco） | SW1 |
-| 5 | Rack and Plugin Uplinks | B（homison） | SW1 |
-| 6 | Register | A（cisco） | SW1 |
-| 7 | Plugin Downlinks | B（homison） | SW1 |
-| 8 | Post Check | A（cisco） | SW1 |
-| 9 | Label and Unplug Downlinks | B（homison） | SW2 |
-| 10 | Decommission | A（cisco） | SW2 |
-| 11 | Rack and Plugin Uplinks | B（homison） | SW2 |
-| 12 | Register | A（cisco） | SW2 |
-| 13 | Plugin Downlinks | B（homison） | SW2 |
-| 14 | Post Check | A（cisco） | SW2 |
+「#」列为不勾选 Esxi Check 时的序号，「#(Esxi)」为勾选后的序号。
 
-> 步骤定义以 `lib/pipeline.ts` 为单一事实来源。计时基准为 Snapshot（步骤 2）完成时刻，步骤 1、2 不计入总耗时与 CSV 导出。
+| # | #(Esxi) | Action | Team | Phase |
+|---|---|--------|------|-------|
+| 1 | 1 | Pipeline Start | A（cisco） | 全局 |
+| 2 | 2 | Snapshot | A（cisco） | 全局 |
+| 3 | 3 | Label and Unplug Downlinks | B（homison） | SW1 |
+| — | 4 | **Esxi Check**（可选） | C（esxi） | SW1 |
+| 4 | 5 | Decommission | A（cisco） | SW1 |
+| 5 | 6 | Rack and Plugin Uplinks | B（homison） | SW1 |
+| 6 | 7 | Register | A（cisco） | SW1 |
+| 7 | 8 | Plugin Downlinks | B（homison） | SW1 |
+| 8 | 9 | Post Check | A（cisco） | SW1 |
+| 9 | 10 | Label and Unplug Downlinks | B（homison） | SW2 |
+| — | 11 | **Esxi Check**（可选） | C（esxi） | SW2 |
+| 10 | 12 | Decommission | A（cisco） | SW2 |
+| 11 | 13 | Rack and Plugin Uplinks | B（homison） | SW2 |
+| 12 | 14 | Register | A（cisco） | SW2 |
+| 13 | 15 | Plugin Downlinks | B（homison） | SW2 |
+| 14 | 16 | Post Check | A（cisco） | SW2 |
+| — | 17 | **Esxi Check**（可选，收尾） | C（esxi） | 全局 |
+
+> 步骤定义以 `lib/pipeline.ts` 为单一事实来源。计时基准为 Snapshot 完成时刻，Pipeline Start 与 Snapshot 不计入总耗时与 CSV 导出。Esxi Check 计入总耗时并出现在 CSV 中。
 
 ## 数据存储
 
@@ -95,7 +103,7 @@ SQLite 数据库文件：`data/track.db`（首次启动自动创建）
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/pairs?filter=all` | 列出 Pair |
-| POST | `/api/pairs` | 创建 Pair `{ "switch1": "201", "switch2": "202" }` |
+| POST | `/api/pairs` | 创建 Pair `{ "switch1": "201", "switch2": "202", "esxiCheck": false }` |
 | POST | `/api/pairs/:id/steps/:order/complete` | 完成步骤 |
 | DELETE | `/api/pairs/:id` | 删除 Pair |
 | GET | `/api/events` | SSE 实时事件 |

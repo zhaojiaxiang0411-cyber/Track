@@ -1,8 +1,10 @@
 import { getDb, runTransaction } from "./db";
 import { broadcast } from "./events";
 import {
-  PIPELINE_STEPS,
-  TOTAL_STEPS,
+  PIPELINE_START_ACTION_KEY,
+  TIMING_BASE_ACTION_KEY,
+  buildPipelineSteps,
+  isExcludedFromTiming,
   resolveStepLabel,
   resolveStepSwitch,
 } from "./pipeline";
@@ -18,6 +20,7 @@ function rowToPair(row: Record<string, unknown>): Pair {
     footprint: (row.footprint as string | null) ?? null,
     owner: (row.owner as string | null) ?? null,
     status: row.status as Pair["status"],
+    esxi_check: Boolean(row.esxi_check),
     created_at: row.created_at as string,
   };
 }
@@ -42,14 +45,16 @@ function enrichPair(pair: Pair, steps: StepInstance[]): PairWithSteps {
   const lastCompleted = [...sorted].reverse().find((s) => s.completed_at);
 
   let totalDuration: number | null = null;
-  // 计时基准为 Snapshot（步骤 2）完成时刻，
-  // 不计入 MW Start（步骤 1）与 Snapshot（步骤 2）本身耗时
-  const EXCLUDED_LAST_ORDER = 2;
-  const snapshot = sorted.find((s) => s.step_order === 2);
-  const mwStart = sorted.find((s) => s.step_order === 1);
+  // 计时基准为 Snapshot 完成时刻，不计入 Pipeline Start 与 Snapshot 本身耗时。
+  // 流水线长度按 pair 变化，故一律按 action_key 定位而非 step_order。
+  const snapshot = sorted.find((s) => s.action_key === TIMING_BASE_ACTION_KEY);
+  const mwStart = sorted.find((s) => s.action_key === PIPELINE_START_ACTION_KEY);
   const baseTime =
     snapshot?.completed_at ?? mwStart?.completed_at ?? pair.created_at;
-  if (lastCompleted?.completed_at && lastCompleted.step_order > EXCLUDED_LAST_ORDER) {
+  if (
+    lastCompleted?.completed_at &&
+    !isExcludedFromTiming(lastCompleted.action_key)
+  ) {
     const start = parseLocalTimeMs(baseTime);
     const end = parseLocalTimeMs(lastCompleted.completed_at);
     totalDuration = Math.max(0, Math.round((end - start) / 1000));
@@ -86,6 +91,8 @@ export function listPairs(filter: PairFilter = "all"): PairWithSteps[] {
       return enriched.filter((p) => p.waiting_team === "A");
     case "waiting_b":
       return enriched.filter((p) => p.waiting_team === "B");
+    case "waiting_c":
+      return enriched.filter((p) => p.waiting_team === "C");
     case "completed":
       return enriched.filter((p) => p.status === "completed");
     default:
@@ -116,7 +123,8 @@ export function createPair(
   switch2: string,
   owner = "",
   rack = "",
-  footprint = ""
+  footprint = "",
+  esxiCheck = false
 ): PairWithSteps {
   const s1 = switch1.trim();
   const s2 = switch2.trim();
@@ -132,12 +140,13 @@ export function createPair(
 
   const db = getDb();
   const insertPair = db.prepare(
-    "INSERT INTO pairs (switch1, switch2, rack, footprint, owner, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+    "INSERT INTO pairs (switch1, switch2, rack, footprint, owner, esxi_check, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
   );
   const insertStep = db.prepare(`
     INSERT INTO step_instances (pair_id, step_order, action_key, team, label, started_at)
     VALUES (?, ?, ?, ?, ?, ?)
   `);
+  const steps = buildPipelineSteps({ esxiCheck });
 
   const pairId = runTransaction(() => {
     const result = insertPair.run(
@@ -146,11 +155,12 @@ export function createPair(
       rackName || null,
       footprintName || null,
       ownerName || null,
+      esxiCheck ? 1 : 0,
       nowLocalString()
     );
     const newPairId = Number(result.lastInsertRowid);
 
-    for (const step of PIPELINE_STEPS) {
+    for (const step of steps) {
       const startedAt = step.order === 1 ? nowLocalString() : null;
       insertStep.run(
         newPairId,
@@ -217,7 +227,14 @@ export function completeStep(pairId: number, stepOrder: number): PairWithSteps {
     throw new Error("该 Pair 已完成，无法继续操作");
   }
 
-  if (stepOrder < 1 || stepOrder > TOTAL_STEPS) {
+  // 流水线长度按 pair 变化（含 Esxi Check 为 17 步，否则 14 步），
+  // 因此边界与「是否最后一步」都取该 pair 自身的步骤。
+  const lastOrder = pair.steps.reduce(
+    (max, s) => Math.max(max, s.step_order),
+    0
+  );
+
+  if (stepOrder < 1 || stepOrder > lastOrder) {
     throw new Error("无效的步骤编号");
   }
 
@@ -252,7 +269,7 @@ export function completeStep(pairId: number, stepOrder: number): PairWithSteps {
     updateStep.run(startedAt, completedAt, durationSec, pairId, stepOrder);
 
     const nextOrder = stepOrder + 1;
-    if (nextOrder <= TOTAL_STEPS) {
+    if (nextOrder <= lastOrder) {
       db.prepare(`
         UPDATE step_instances SET started_at = ? WHERE pair_id = ? AND step_order = ?
       `).run(completedAt, pairId, nextOrder);
@@ -280,37 +297,265 @@ export function deletePair(pairId: number): void {
 export function buildExportCsv(): string {
   const pairs = listPairs("all");
   const header =
-    "Pair,Switch1,Switch2,StepOrder,Action,Team,Switch,StartedAt,CompletedAt,DurationSec,PairStatus";
+    "Pair,Switch1,Switch2,StepOrder,Action,Team,Switch,StartedAt,CompletedAt,DurationSec,DurationMin,PairStatus";
   const rows: string[] = [header];
-
-  // Pipeline Start（步骤 1）与 Snapshot（步骤 2）不计入导出
-  const EXCLUDED_STEP_ORDERS = new Set([1, 2]);
 
   for (const pair of pairs) {
     for (const step of pair.steps) {
-      if (EXCLUDED_STEP_ORDERS.has(step.step_order)) continue;
+      // Pipeline Start 与 Snapshot 不计入导出，与总耗时口径一致
+      if (isExcludedFromTiming(step.action_key)) continue;
       const phase =
-        resolveStepSwitch(step.step_order, pair.switch1, pair.switch2) ?? "";
+        resolveStepSwitch(step.action_key, pair.switch1, pair.switch2) ?? "";
       rows.push(
         [
           csvCell(`${pair.switch1}-${pair.switch2}`),
           csvCell(pair.switch1),
           csvCell(pair.switch2),
           csvCell(step.step_order),
-          csvCell(resolveStepLabel(step.step_order, step.label)),
+          csvCell(resolveStepLabel(step.action_key, step.label)),
           csvCell(teamLabel(step.team)),
           csvCell(phase),
           csvCell(step.started_at),
           csvCell(step.completed_at),
           csvCell(step.duration_sec),
+          csvCell(toMinutes(step.duration_sec)),
           csvCell(pair.status),
         ].join(",")
       );
     }
   }
 
+  const summary = buildSummarySection(pairs);
+  if (summary.length > 0) {
+    rows.push("");
+    rows.push(...summary);
+  }
+
   // 标准 CSV 用 CRLF 作行分隔，避免仅 \n 在部分工具中解析异常。
   return rows.join("\r\n");
+}
+
+// ---------------------------------------------------------------------------
+// 汇总统计表（追加在明细之后）
+// ---------------------------------------------------------------------------
+
+// 报表列名与编号沿用现场交付口径，和 pipeline.ts 的步骤 label 不同名，
+// 故在此单列一份映射；每列的 action_key 由 `${keyPrefix}_sw${1|2}` 拼出。
+const SUMMARY_HOMISON_COLUMNS = [
+  { header: "1. Labing & Unplug downlink", keyPrefix: "label" },
+  { header: "2. ESXi verify", keyPrefix: "esxi_check" },
+  { header: "4. Power off & power on & plug uplink", keyPrefix: "uplink_only" },
+  { header: "6. Plug downlink", keyPrefix: "downlink" },
+] as const;
+
+const SUMMARY_CISCO_COLUMNS = [
+  { header: "3. Decomission", keyPrefix: "decomm" },
+  { header: "5. Verify uplink & register", keyPrefix: "commission" },
+  { header: "7. Verify downlink & post check", keyPrefix: "post_check" },
+] as const;
+
+const SUMMARY_ESXI_FINAL_ACTION_KEY = "esxi_check_final";
+
+// Total Port# / ESXi Port# 数据库中无对应字段，导出留空供人工填写。
+const SUMMARY_HEADERS = [
+  "Switch",
+  "Total Port#",
+  "ESXi Port#",
+  ...SUMMARY_HOMISON_COLUMNS.map((c) => c.header),
+  "Sum",
+  ...SUMMARY_CISCO_COLUMNS.map((c) => c.header),
+  "Sum",
+  "Overall",
+  "8. ESXi final check for a pair",
+  "Note",
+];
+
+const MONTH_ABBR = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+
+interface SummaryGroup {
+  /** 各列的分钟值，null 表示该步骤不存在（未启用）或尚未完成 */
+  cells: (string | null)[];
+  /** 组内小计；只要有已存在但未完成的步骤就留空 */
+  sum: string | null;
+  totalSec: number;
+  incomplete: boolean;
+}
+
+function summarizeGroup(
+  stepsByKey: Map<string, StepInstance>,
+  columns: readonly { keyPrefix: string }[],
+  switchIndex: 1 | 2
+): SummaryGroup {
+  const cells: (string | null)[] = [];
+  let totalSec = 0;
+  let incomplete = false;
+
+  for (const column of columns) {
+    const step = stepsByKey.get(`${column.keyPrefix}_sw${switchIndex}`);
+    // 步骤不存在说明该 pair 未勾选对应可选步骤，属于「不适用」而非「未完成」
+    if (!step) {
+      cells.push(null);
+      continue;
+    }
+    if (step.duration_sec === null) {
+      cells.push(null);
+      incomplete = true;
+      continue;
+    }
+    cells.push(toMinutes(step.duration_sec));
+    totalSec += step.duration_sec;
+  }
+
+  return {
+    cells,
+    sum: incomplete ? null : toMinutes(totalSec),
+    totalSec,
+    incomplete,
+  };
+}
+
+function buildSummarySection(pairs: PairWithSteps[]): string[] {
+  if (pairs.length === 0) return [];
+
+  // listPairs 按 id 倒序返回，报表按时间先后（id 升序）排列更符合阅读习惯。
+  const ordered = [...pairs].sort((a, b) => a.id - b.id);
+
+  const groupRow = new Array<string>(SUMMARY_HEADERS.length).fill("");
+  groupRow[3] = "Homison & ESXi";
+  groupRow[3 + SUMMARY_HOMISON_COLUMNS.length + 1] = "Cisco";
+
+  const rows: string[] = [
+    csvCell(buildSummaryTitle(ordered)),
+    groupRow.map(csvCell).join(","),
+    SUMMARY_HEADERS.map(csvCell).join(","),
+  ];
+
+  for (const pair of ordered) {
+    const stepsByKey = new Map(pair.steps.map((s) => [s.action_key, s]));
+    const esxiFinal = stepsByKey.get(SUMMARY_ESXI_FINAL_ACTION_KEY);
+
+    for (const switchIndex of [1, 2] as const) {
+      const homison = summarizeGroup(
+        stepsByKey,
+        SUMMARY_HOMISON_COLUMNS,
+        switchIndex
+      );
+      const cisco = summarizeGroup(
+        stepsByKey,
+        SUMMARY_CISCO_COLUMNS,
+        switchIndex
+      );
+      // 由秒累加后再换算，避免两个小计各自四舍五入后相加产生偏差
+      const overall =
+        homison.incomplete || cisco.incomplete
+          ? null
+          : toMinutes(homison.totalSec + cisco.totalSec);
+
+      // ESXi 收尾检查是 pair 级步骤，只写在该 pair 的第一行，第二行留空（对应图中的合并单元格）
+      const esxiFinalCell =
+        switchIndex === 1 && esxiFinal ? toMinutes(esxiFinal.duration_sec) : null;
+      const esxiFinalIncomplete =
+        switchIndex === 1 && !!esxiFinal && esxiFinal.duration_sec === null;
+
+      const incomplete =
+        homison.incomplete || cisco.incomplete || esxiFinalIncomplete;
+
+      rows.push(
+        [
+          switchIndex === 1 ? pair.switch1 : pair.switch2,
+          null,
+          null,
+          ...homison.cells,
+          homison.sum,
+          ...cisco.cells,
+          cisco.sum,
+          overall,
+          esxiFinalCell,
+          incomplete ? "未完成" : null,
+        ]
+          .map(csvCell)
+          .join(",")
+      );
+    }
+  }
+
+  return rows;
+}
+
+function buildSummaryTitle(pairs: PairWithSteps[]): string {
+  let startAt: string | null = null;
+  let endAt: string | null = null;
+  const footprints = new Set<string>();
+  let allCompleted = true;
+
+  for (const pair of pairs) {
+    if (pair.footprint) footprints.add(pair.footprint);
+    if (pair.status !== "completed") allCompleted = false;
+
+    // 窗口起点取 Pipeline Start 的完成时刻（真正宣布开工的时刻），未点则退回创建时间
+    const mwStart = pair.steps.find(
+      (s) => s.action_key === PIPELINE_START_ACTION_KEY
+    );
+    const pairStart = mwStart?.completed_at ?? pair.created_at;
+    if (!startAt || parseLocalTimeMs(pairStart) < parseLocalTimeMs(startAt)) {
+      startAt = pairStart;
+    }
+
+    for (const step of pair.steps) {
+      if (!step.completed_at) continue;
+      if (!endAt || parseLocalTimeMs(step.completed_at) > parseLocalTimeMs(endAt)) {
+        endAt = step.completed_at;
+      }
+    }
+  }
+
+  const dateLabel =
+    startAt && endAt && formatSummaryDate(startAt) !== formatSummaryDate(endAt)
+      ? `${formatSummaryDate(startAt)} - ${formatSummaryDate(endAt)}`
+      : startAt
+        ? formatSummaryDate(startAt)
+        : "-";
+  const site = footprints.size > 0 ? ` (${[...footprints].join(" / ")})` : "";
+  const startLabel = startAt ? formatSummaryClock(startAt) : "-";
+  const endLabel = endAt ? formatSummaryClock(endAt) : "-";
+  const endPrefix = allCompleted ? "completed at" : "last update at";
+
+  return `Change on ${dateLabel}${site} - started at ${startLabel} - ${endPrefix} ${endLabel} HKT`;
+}
+
+function formatSummaryDate(local: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(local);
+  if (!match) return local;
+  const [, year, month, day] = match;
+  return `${Number(day)} ${MONTH_ABBR[Number(month) - 1]} ${year}`;
+}
+
+function formatSummaryClock(local: string): string {
+  const match = /[ T](\d{2}):(\d{2})/.exec(local);
+  if (!match) return local;
+  const hour = Number(match[1]);
+  const suffix = hour < 12 ? "AM" : "PM";
+  const hour12 = hour % 12 === 0 ? 12 : hour % 12;
+  return `${hour12}:${match[2]} ${suffix}`;
+}
+
+// 秒换算为分钟，保留 1 位小数；未完成的步骤（null）保持空单元格而非 0
+function toMinutes(seconds: number | null | undefined): string | null {
+  if (seconds === null || seconds === undefined) return null;
+  return (Math.round((seconds / 60) * 10) / 10).toFixed(1);
 }
 
 // 生成安全的 CSV 单元格：

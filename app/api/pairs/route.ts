@@ -36,13 +36,16 @@ export async function POST(request: NextRequest) {
       rack?: string;
       footprint?: string;
       owner?: string;
+      esxiCheck?: unknown;
     };
     const pair = createPair(
       body.switch1 ?? "",
       body.switch2 ?? "",
       body.owner ?? "",
       body.rack ?? "",
-      body.footprint ?? ""
+      body.footprint ?? "",
+      // 客户端传值不可信，仅严格布尔 true 视为开启
+      body.esxiCheck === true
     );
     return NextResponse.json({ pair }, { status: 201 });
   } catch (error) {
