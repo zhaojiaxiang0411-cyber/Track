@@ -24,6 +24,7 @@ function initSchema(database: DatabaseSync) {
       owner TEXT,
       status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'completed')),
       esxi_check INTEGER NOT NULL DEFAULT 0,
+      sort_order INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
     );
 
@@ -57,6 +58,7 @@ function initSchema(database: DatabaseSync) {
     migrateMergeLabelAndUnplug(database);
     migrateAddEsxiCheckColumn(database);
     migrateAllowTeamC(database);
+    migrateAddSortOrderColumn(database);
     database.exec("COMMIT");
   } catch (error) {
     database.exec("ROLLBACK");
@@ -114,6 +116,25 @@ function migrateAllowTeamC(database: DatabaseSync) {
   }
 
   database.exec(`PRAGMA user_version = ${TARGET_VERSION}`);
+}
+
+// 按需为 pairs 增加 sort_order 列（Pipeline Overview 里人工拖拽出来的展示顺序，值小者在前）。
+// 回填只在「本次刚加列」时做一次：按加列前的展示口径 id DESC（新建在最前）编号，
+// 保证升级前后看到的顺序完全一致；此后该列由 reorderPairs / createPair 维护。
+function migrateAddSortOrderColumn(database: DatabaseSync) {
+  const columns = database
+    .prepare("PRAGMA table_info(pairs)")
+    .all() as Array<{ name: string }>;
+  if (columns.some((col) => col.name === "sort_order")) return;
+
+  database.exec(
+    "ALTER TABLE pairs ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"
+  );
+  // 相关子查询「比自己 id 大的行数」即为按 id DESC 排列时的 0 基序号，
+  // 不依赖窗口函数，对老版本 SQLite 也安全。
+  database.exec(
+    "UPDATE pairs SET sort_order = (SELECT COUNT(*) FROM pairs p2 WHERE p2.id > pairs.id)"
+  );
 }
 
 // 按需为 pairs 增加 esxi_check 列（是否包含 Esxi Check 步骤）。

@@ -10,12 +10,13 @@ import { usePairs } from "@/hooks/usePairs";
 import { teamLabel } from "@/lib/format";
 import { canEditInfo, canManagePairs } from "@/lib/permissions";
 import type { PairFilter } from "@/lib/types";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export default function HomePage() {
   const [filter, setFilter] = useState<PairFilter>("all");
   const [highlightPairId, setHighlightPairId] = useState<number | null>(null);
   const [pendingScrollId, setPendingScrollId] = useState<number | null>(null);
+  const highlightTimerRef = useRef<number | null>(null);
   const { user, loading: authLoading, login, logout } = useAuth();
   const { pairs, allPairs, counts, loading, error, refresh, recentlyUpdated } =
     usePairs(filter, true);
@@ -25,17 +26,40 @@ export default function HomePage() {
   const scrollToPair = useCallback((pairId: number) => {
     const el = document.getElementById(`pair-${pairId}`);
     if (!el) return;
-    el.scrollIntoView({ behavior: "smooth", block: "start" });
-    setHighlightPairId(pairId);
-    window.setTimeout(() => setHighlightPairId(null), 2000);
+    // 卡片比视口还高时居中会把标题连同高亮角标顶出屏幕，这种情况退回顶部对齐
+    const fitsInViewport =
+      el.getBoundingClientRect().height + 48 < window.innerHeight;
+    el.scrollIntoView({
+      behavior: "smooth",
+      block: fitsInViewport ? "center" : "start",
+    });
 
+    if (highlightTimerRef.current !== null) {
+      window.clearTimeout(highlightTimerRef.current);
+    }
+    // 先清空再置位，否则连续点击同一个 pair 时 class 不变化，CSS 动画不会重播
+    setHighlightPairId(null);
+    window.requestAnimationFrame(() => {
+      setHighlightPairId(pairId);
+      // 与 globals.css 里 jump-highlight 动画时长保持一致
+      highlightTimerRef.current = window.setTimeout(
+        () => setHighlightPairId(null),
+        2400
+      );
+    });
+
+    // 当前步骤只在进度条容器内横向居中：不能用 scrollIntoView，它会连带滚动页面，
+    // 把上面刚发起的「卡片垂直居中」平滑滚动覆盖掉。
     const currentStep = document.getElementById(`pair-${pairId}-current-step`);
-    if (currentStep) {
-      currentStep.scrollIntoView({
-        behavior: "smooth",
-        block: "nearest",
-        inline: "center",
-      });
+    const track = currentStep?.closest<HTMLElement>("[data-step-track]");
+    if (currentStep && track) {
+      const stepRect = currentStep.getBoundingClientRect();
+      const trackRect = track.getBoundingClientRect();
+      const delta =
+        stepRect.left -
+        trackRect.left -
+        (trackRect.width - stepRect.width) / 2;
+      track.scrollBy({ left: delta, behavior: "smooth" });
     }
   }, []);
 
@@ -58,6 +82,29 @@ export default function HomePage() {
     scrollToPair(pendingScrollId);
     setPendingScrollId(null);
   }, [pairs, pendingScrollId, scrollToPair]);
+
+  useEffect(
+    () => () => {
+      if (highlightTimerRef.current !== null) {
+        window.clearTimeout(highlightTimerRef.current);
+      }
+    },
+    []
+  );
+
+  const handleReorder = useCallback(
+    async (orderedIds: number[]) => {
+      const res = await fetch("/api/pairs/reorder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderedIds }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? "调整顺序失败");
+      await refresh();
+    },
+    [refresh]
+  );
 
   return (
     <main className="mx-auto min-h-screen max-w-7xl px-4 py-8 sm:px-6">
@@ -116,6 +163,8 @@ export default function HomePage() {
           pairs={allPairs}
           onJumpToPair={handleJumpToPair}
           recentlyUpdated={recentlyUpdated}
+          canReorder={canManage}
+          onReorder={handleReorder}
         />
       )}
 

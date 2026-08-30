@@ -78,7 +78,7 @@ Dockerfile / .dockerignore   # 容器化
 - `AuthBar.tsx`：登录 / 登出条
 - `CreatePairForm.tsx`：新建 Pair 表单（仅 admin 可见）
 - `PairFilter.tsx`：筛选条（全部 / 等 cisco / 等 homison / 已完成）
-- `PipelineOverview.tsx`：全部 Pair 的流水线总览，可跳转
+- `PipelineOverview.tsx`：全部 Pair 的流水线总览，可跳转；admin 可拖拽行首手柄调整顺序
 - `PipelineProgressDots.tsx`：进度点
 - `PairCard.tsx`：单个 Pair 卡片（步骤、Info 编辑、删除）
 - `StepButton.tsx`：单个步骤按钮（按权限/顺序启用）
@@ -88,7 +88,8 @@ Dockerfile / .dockerignore   # 容器化
 
 数据库表（见 `lib/db.ts`）：
 
-- **`pairs`**：`id, switch1, switch2, rack, footprint, owner, status('active'|'completed'), esxi_check(0/1), created_at`
+- **`pairs`**：`id, switch1, switch2, rack, footprint, owner, status('active'|'completed'), esxi_check(0/1), sort_order, created_at`
+ - `sort_order`：Pipeline Overview 里人工拖拽出来的展示顺序，**值小者在前**。`listPairs` 按 `ORDER BY sort_order ASC, id DESC` 取数，Overview 与下方卡片列表共用同一顺序。新建 pair 取 `MIN(sort_order) - 1` 排到最前，保持「新建在最上」的既有习惯。
 - **`step_instances`**：`id, pair_id(FK,级联删除), step_order, action_key, team('A'|'B'|'C'), label, started_at, completed_at, duration_sec`，唯一约束 `(pair_id, step_order)`
 
 关键类型见 `lib/types.ts`：`Pair`（含 `esxi_check`）/ `StepInstance` / `PairWithSteps`（含 `current_step_order`、`waiting_team`、`total_duration_sec`）/ `Role` / `SessionUser`。
@@ -137,6 +138,7 @@ Dockerfile / .dockerignore   # 容器化
    - 注意 PATCH 改 Info：`footprint` 任意登录用户可改；`rack` / `owner` 仅 admin 可改。
    - Team C（esxi）步骤只有 admin 能完成，见上文角色表下的告警。
 6. **`esxi_check` 创建后不可改**：`updatePairInfo` 不接受该字段。改变它需要增删步骤行并重排 `step_order`，当前不支持；如需支持要另做一套「动态插入步骤」的事务逻辑。
+6.5 **展示顺序（`sort_order`）是全局共享状态**：`reorderPairs(orderedIds)` 要求 `orderedIds` **恰好是当前全部 pair 的一个排列**，否则整体拒绝并提示刷新——拖拽期间若别人新建/删除了 pair，客户端列表已过时，写入会造成遗漏或错位。仅 admin 可调（走 `canManagePairs`），写后 `broadcast` 让所有人同步。前端 `PipelineOverview` 做乐观渲染，请求失败即回落到服务端顺序。
 7. **CSV 导出安全**：`buildExportCsv` 用 `csvCell` 生成单元格——
    - **中和公式注入**：对以 `= + - @` 或控制字符（Tab/CR）开头的值加前缀单引号，防止 Excel/Sheets 把用户可控字段（如 switch 名称）当公式执行。
    - **RFC 4180 转义**：含逗号/引号/换行(`\r` 或 `\n`)的值用双引号包裹并将内部引号翻倍。
@@ -183,6 +185,7 @@ Dockerfile / .dockerignore   # 容器化
 - `migrateAddUnplugDownlinks`：用 `PRAGMA user_version`（目标 3）一次性在 Label 与 Decommission 之间为 SW1/SW2 各补 `unplug_downlink_*`（步骤 4、11），并顺移后续步骤到 5–16；对已完成同 phase Decommission 的历史 pair 直接标记该步骤为已完成。
 - `migrateMergeLabelAndUnplug`：用 `PRAGMA user_version`（目标 5）一次性把 `unplug_downlink_*` 合并进同 phase 的 `label_*`（16 步 → 14 步）。合并步 `started_at` 取原 Label 开始时刻、`completed_at` 取原 Unplug 完成时刻并重算耗时；**原 Unplug 未完成则合并步整体视为未完成**，交回 B 组重做。随后删除 Unplug 行、统一文案为 `Label and Unplug Downlinks`，并按 `LEGACY_LAYOUT_V5` 快照重排全部 `step_order`（临时值用 `-1001` 起，避免与历史遗留负值撞 `UNIQUE(pair_id, step_order)`）。该重排取代了原 `migrateNormalizeStepOrder`（目标 4），后者已删除。
 - `migrateAddEsxiCheckColumn`：按 `PRAGMA table_info` 幂等为 `pairs` 加 `esxi_check INTEGER NOT NULL DEFAULT 0`（历史 pair 一律 0，保持 14 步布局）。
+- `migrateAddSortOrderColumn`：按 `PRAGMA table_info` 幂等为 `pairs` 加 `sort_order INTEGER NOT NULL DEFAULT 0`。**仅在本次刚加列时**回填一次，按加列前的展示口径 `id DESC` 编号（相关子查询「比自己 id 大的行数」= 0 基序号，不依赖窗口函数），保证升级前后顺序不变；此后该列由 `reorderPairs` / `createPair` 维护。
 - `migrateAllowTeamC`：用 `PRAGMA user_version`（目标 6）一次性把 `step_instances.team` 的 CHECK 放宽到 `('A','B','C')`。SQLite 无法 `ALTER` 改 CHECK，只能**重建表**：建新表 → `INSERT SELECT` 全量复制 → `DROP` 旧表 → `RENAME` → 重建 `idx_step_instances_pair_id`。另有守护：若建表时已含 `'C'`（新库），跳过重建只推进版本号。
 
 > 改 schema/步骤时：用 `PRAGMA user_version` 守护「只执行一次」的迁移，列新增用 `PRAGMA table_info` 判断幂等；重排 `step_order` 时用「先取负、再落值」两段避免撞唯一约束。
@@ -197,6 +200,7 @@ Dockerfile / .dockerignore   # 容器化
 | POST | `/api/pairs` | admin | 新建 `{switch1, switch2, rack?, footprint?, owner?, esxiCheck?}`（`esxiCheck` 仅严格 `true` 视为开启） |
 | GET | `/api/pairs/:id` | 公开 | 单个 Pair |
 | PATCH | `/api/pairs/:id` | admin/homison | 改 Info（footprint 任意登录可改；rack/owner 仅 admin） |
+| POST | `/api/pairs/reorder` | admin | 调整展示顺序 `{orderedIds: number[]}`（须是当前全部 pair 的一个排列） |
 | DELETE | `/api/pairs/:id` | admin | 删除 Pair |
 | POST | `/api/pairs/:id/steps/:order/complete` | 按步骤 team | 完成步骤 |
 | GET | `/api/events` | 公开 | SSE 实时事件 |

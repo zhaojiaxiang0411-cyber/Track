@@ -72,8 +72,10 @@ function enrichPair(pair: Pair, steps: StepInstance[]): PairWithSteps {
 
 export function listPairs(filter: PairFilter = "all"): PairWithSteps[] {
   const db = getDb();
+  // 展示顺序由 sort_order 决定（Pipeline Overview 可拖拽调整）；
+  // 同值时回落到 id DESC，与加入该列之前的默认顺序保持一致。
   const pairs = db
-    .prepare("SELECT * FROM pairs ORDER BY id DESC")
+    .prepare("SELECT * FROM pairs ORDER BY sort_order ASC, id DESC")
     .all() as Record<string, unknown>[];
 
   const getSteps = db.prepare(
@@ -139,8 +141,10 @@ export function createPair(
   }
 
   const db = getDb();
+  // 新建的 pair 排在最前，与加入 sort_order 之前 id DESC 的习惯一致。
   const insertPair = db.prepare(
-    "INSERT INTO pairs (switch1, switch2, rack, footprint, owner, esxi_check, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    `INSERT INTO pairs (switch1, switch2, rack, footprint, owner, esxi_check, sort_order, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, (SELECT COALESCE(MIN(sort_order), 0) - 1 FROM pairs), ?)`
   );
   const insertStep = db.prepare(`
     INSERT INTO step_instances (pair_id, step_order, action_key, team, label, started_at)
@@ -216,6 +220,42 @@ export function updatePairInfo(
 
   broadcast("pair_updated", { pairId, action: "info_updated" });
   return updated;
+}
+
+// 按给定顺序重排 pair 的展示顺序（数组首位排最前），供 Pipeline Overview 拖拽使用。
+// 要求 orderedIds 恰好是当前全部 pair 的一个排列：若拖拽期间别人新建或删除了 pair，
+// 客户端手里的列表已经过时，此时整体拒绝，好过把过时顺序写进库导致遗漏或错位。
+export function reorderPairs(orderedIds: number[]): PairWithSteps[] {
+  const db = getDb();
+
+  if (!Array.isArray(orderedIds) || orderedIds.length === 0) {
+    throw new Error("顺序列表不能为空");
+  }
+  if (!orderedIds.every((id) => Number.isInteger(id))) {
+    throw new Error("顺序列表包含非法 id");
+  }
+  if (new Set(orderedIds).size !== orderedIds.length) {
+    throw new Error("顺序列表存在重复 id");
+  }
+
+  const existingIds = (
+    db.prepare("SELECT id FROM pairs").all() as Array<{ id: number }>
+  ).map((row) => row.id);
+  const existing = new Set(existingIds);
+  if (
+    orderedIds.length !== existingIds.length ||
+    orderedIds.some((id) => !existing.has(id))
+  ) {
+    throw new Error("Pipeline 列表已变化，请刷新后重试");
+  }
+
+  const update = db.prepare("UPDATE pairs SET sort_order = ? WHERE id = ?");
+  runTransaction(() => {
+    orderedIds.forEach((id, index) => update.run(index, id));
+  });
+
+  broadcast("pair_updated", { action: "reordered" });
+  return listPairs("all");
 }
 
 export function completeStep(pairId: number, stepOrder: number): PairWithSteps {

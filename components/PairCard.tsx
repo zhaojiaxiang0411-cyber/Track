@@ -135,16 +135,20 @@ export function PairCard({
   return (
     <article
       id={`pair-${pair.id}`}
-      className={`scroll-mt-6 rounded-2xl bg-white p-5 shadow-sm ring-1 transition-shadow duration-500 ${
-        highlighted
-          ? "ring-2 ring-blue-500 shadow-md"
-          : "ring-slate-200"
+      className={`scroll-mt-6 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200 ${
+        highlighted ? "animate-jump-highlight" : ""
       }`}
     >
       <header className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-bold text-slate-900">
             Pair {pair.switch1} – {pair.switch2}
+            {highlighted && (
+              <span className="ml-2 inline-flex animate-pulse items-center gap-1 rounded-full bg-blue-600 px-2 py-0.5 align-middle text-[10px] font-semibold text-white">
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-white" />
+                已定位
+              </span>
+            )}
             {pair.rack && (
               <span className="ml-2 align-middle rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
                 Rack: {pair.rack}
@@ -268,7 +272,7 @@ export function PairCard({
         />
       </div>
 
-      <div className="mb-4 overflow-x-auto pb-2">
+      <div data-step-track className="mb-4 overflow-x-auto pb-2">
         <div className="flex min-w-max gap-2">
           {pair.steps.map((step) => (
             <StepButton
