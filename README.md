@@ -5,6 +5,7 @@
 ## 功能
 
 - 每对交换机 14 步标准流水线，严格顺序执行
+- 点错时 cisco 可「撤回上一步」，把误点的步骤退回未完成，交回对应 team 重做（一次退一步）
 - 新建时可勾选 **Esxi Check**：共插入三次——每台交换机的 Label and Unplug Downlinks 与 Decommission 之间各一次，流水线末尾再收尾一次，流水线变为 17 步（创建后不可更改）
 - cisco（蓝色）/ homison（橙色）/ esxi（紫色）分工可视化
 - 一方完成后点击，另一方实时看到可执行步骤（SSE 推送）
@@ -14,11 +15,11 @@
 
 ## 登录与权限
 
-| 身份 | 默认账号 | 查看 | 点 homison 步骤 | 点 cisco 步骤 | 点 esxi 步骤 | 导出 CSV | 删除 pipeline | 新建 pipeline |
-|------|----------|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| cisco（管理员） | `cisco` / `cisco` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| homison | `homison` / `homison` | ✅ | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ |
-| 未登录（游客） | — | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ |
+| 身份 | 默认账号 | 查看 | 点 homison 步骤 | 点 cisco 步骤 | 点 esxi 步骤 | 撤回步骤 | 导出 CSV | 删除 pipeline | 新建 pipeline |
+|------|----------|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| cisco（管理员） | `cisco` / `cisco` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| homison | `homison` / `homison` | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ |
+| 未登录（游客） | — | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ |
 
 - esxi 没有独立账号：Esxi Check 由 esxi 团队负责执行，但在系统里由 cisco（管理员）代为点击完成。
 
@@ -105,6 +106,7 @@ SQLite 数据库文件：`data/track.db`（首次启动自动创建）
 | GET | `/api/pairs?filter=all` | 列出 Pair |
 | POST | `/api/pairs` | 创建 Pair `{ "switch1": "201", "switch2": "202", "esxiCheck": false }` |
 | POST | `/api/pairs/:id/steps/:order/complete` | 完成步骤 |
+| DELETE | `/api/pairs/:id/steps/:order/complete` | 撤回步骤（仅 cisco，`:order` 须是最后一个已完成步骤） |
 | DELETE | `/api/pairs/:id` | 删除 Pair |
 | GET | `/api/events` | SSE 实时事件 |
 | GET | `/api/export` | 下载 CSV |

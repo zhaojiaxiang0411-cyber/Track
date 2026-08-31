@@ -47,6 +47,17 @@ export function PipelineOverview({
     if (settled) setOptimisticIds(null);
   }, [pairs, optimisticIds]);
 
+  const submitOrder = (ids: number[]) => {
+    if (!onReorder) return;
+    setOptimisticIds(ids);
+    setReorderError(null);
+    onReorder(ids).catch((err: unknown) => {
+      // 回到服务端权威顺序，不要把失败的排列留在界面上
+      setOptimisticIds(null);
+      setReorderError(err instanceof Error ? err.message : "调整顺序失败");
+    });
+  };
+
   const handleDrop = (targetId: number) => {
     const sourceId = dragId;
     setDragId(null);
@@ -61,13 +72,41 @@ export function PipelineOverview({
     const [moved] = ids.splice(from, 1);
     ids.splice(to, 0, moved);
 
-    setOptimisticIds(ids);
-    setReorderError(null);
-    onReorder(ids).catch((err: unknown) => {
-      // 回到服务端权威顺序，不要把失败的排列留在界面上
-      setOptimisticIds(null);
-      setReorderError(err instanceof Error ? err.message : "调整顺序失败");
-    });
+    submitOrder(ids);
+  };
+
+  const handleSortByOwner = () => {
+    // 顺序是全局共享的：一键排序会覆盖所有人手动拖出的顺序并实时同步给所有人，
+    // 维护窗口里误点的代价不小，故要求显式确认。
+    if (
+      !window.confirm(
+        "将全部 Pipeline 按 Owner 重新排序？\n\n这会覆盖当前手动拖拽的顺序，并立即同步给所有人。"
+      )
+    ) {
+      return;
+    }
+
+    // 以服务端权威列表为基准排序：reorderPairs 要求提交的是当前全部 pair 的一个排列
+    const ids = [...pairs]
+      .sort((a, b) => {
+        const ownerA = a.owner?.trim() ?? "";
+        const ownerB = b.owner?.trim() ?? "";
+        // 未指派的沉底
+        if (!ownerA !== !ownerB) return ownerA ? -1 : 1;
+        if (ownerA && ownerB) {
+          // numeric 让名字里的数字走自然序（eng9 在 eng10 前）；sensitivity: "base" 忽略大小写
+          const byOwner = ownerA.localeCompare(ownerB, undefined, {
+            numeric: true,
+            sensitivity: "base",
+          });
+          if (byOwner !== 0) return byOwner;
+        }
+        // 同 owner 内新建在前，与 sort_order 引入前 id DESC 的习惯一致
+        return b.id - a.id;
+      })
+      .map((p) => p.id);
+
+    submitOrder(ids);
   };
 
   const total = pairs.length;
@@ -82,12 +121,23 @@ export function PipelineOverview({
   return (
     <section className="mb-6 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+        <h2 className="flex flex-wrap items-center gap-2 text-sm font-semibold text-slate-800">
           Pipeline Overview
           {canReorder && (
-            <span className="font-normal text-[10px] text-slate-400">
-              拖拽行首手柄可调整顺序
-            </span>
+            <>
+              <button
+                type="button"
+                onClick={handleSortByOwner}
+                disabled={total < 2}
+                title="按 Owner 名称排序，未填 Owner 的排在最后"
+                className="rounded-md bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600 ring-1 ring-slate-200 transition-colors hover:bg-slate-200 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                按 Owner 排序
+              </button>
+              <span className="font-normal text-[10px] text-slate-400">
+                也可拖拽行首手柄手动调整
+              </span>
+            </>
           )}
         </h2>
         <div className="flex flex-wrap gap-3 text-xs">

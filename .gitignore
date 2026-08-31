@@ -38,3 +38,8 @@ next-env.d.ts
 # sqlite database
 /data/*.db
 /data/*.db-*
+# 手工备份（track.db.bak.* / track.db.premigrate-* 等），含真实业务数据，勿入库
+/data/*.db.*
+
+# 临时验证脚本
+/tmp-*

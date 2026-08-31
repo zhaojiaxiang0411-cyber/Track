@@ -118,7 +118,10 @@ export function usePairs(filter: PairFilter, enabled: boolean) {
           pairId?: number;
           action?: string;
         };
-        if (data.action === "step_completed" && typeof data.pairId === "number") {
+        // 步骤被撤回同样要高亮：其他人正等着重做这一步，需要引起注意
+        const isStepChange =
+          data.action === "step_completed" || data.action === "step_reverted";
+        if (isStepChange && typeof data.pairId === "number") {
           markRecentlyUpdated(data.pairId);
         }
       } catch {

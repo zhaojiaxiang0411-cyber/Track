@@ -25,7 +25,7 @@
 
 | 角色 `Role` | 账号 | 权限 |
 |-------------|------|------|
-| `admin` | `cisco` | 全部：完成任意步骤（含 Team C）、新建/删除 pipeline、改全部 Info、导出 |
+| `admin` | `cisco` | 全部：完成任意步骤（含 Team C）、撤回步骤、新建/删除 pipeline、改全部 Info、导出 |
 | `homison` | `homison` | 完成 Team B 步骤、仅改 Info(footprint)、导出 |
 | `guest` | 未登录 | 只读：查看、实时更新、导出 CSV |
 
@@ -52,7 +52,7 @@ app/
     auth/{login,logout,me}/route.ts   # 登录 / 登出 / 当前会话
     pairs/route.ts                    # GET 列表(公开) / POST 新建(admin)
     pairs/[id]/route.ts               # GET(公开) / PATCH 改Info / DELETE(admin)
-    pairs/[id]/steps/[order]/complete/route.ts  # POST 完成步骤
+    pairs/[id]/steps/[order]/complete/route.ts  # POST 完成步骤 / DELETE 撤回步骤(admin)
     events/route.ts                   # SSE 实时事件流
     export/route.ts                   # CSV 导出
 components/                  # 客户端 UI 组件（见下）
@@ -78,7 +78,7 @@ Dockerfile / .dockerignore   # 容器化
 - `AuthBar.tsx`：登录 / 登出条
 - `CreatePairForm.tsx`：新建 Pair 表单（仅 admin 可见）
 - `PairFilter.tsx`：筛选条（全部 / 等 cisco / 等 homison / 已完成）
-- `PipelineOverview.tsx`：全部 Pair 的流水线总览，可跳转；admin 可拖拽行首手柄调整顺序
+- `PipelineOverview.tsx`：全部 Pair 的流水线总览，可跳转；admin 可拖拽行首手柄调整顺序，也可点「按 Owner 排序」一键重排
 - `PipelineProgressDots.tsx`：进度点
 - `PairCard.tsx`：单个 Pair 卡片（步骤、Info 编辑、删除）
 - `StepButton.tsx`：单个步骤按钮（按权限/顺序启用）
@@ -134,11 +134,20 @@ Dockerfile / .dockerignore   # 容器化
    - **必须用 `nowLocalString()`，禁止用 `new Date().toISOString()`**（那是 UTC，会偏 8 小时）。
    - 解析用 `parseLocalTimeMs()`（`lib/format.ts`）。
 4. **完成步骤的连锁**：完成某步时写入 `completed_at` / `duration_sec`，并把下一步的 `started_at` 置为该完成时刻；最后一步完成则把 pair `status` 置 `completed`。
-5. **权限三处一致**：判断逻辑集中在 `lib/permissions.ts`（`canCompleteStep` / `canManagePairs` / `canEditInfo`），前端按钮与服务端 API 都调用它。**前端禁用仅为体验，真正的强制在服务端 API**（返回 401/403）。
+4.5 **撤回步骤（`revertStepCompletion`）是 `completeStep` 的严格逆操作**，用于现场点错时把 pipeline 退回一步，仅 admin 可用（`canRevertStep`）。
+   - **一次只退一步**：只能撤回当前**最后一个已完成**步骤（已完成步骤是连续前缀，故即 `step_order` 最大者）。想多退就多点几次。
+   - **必须显式传入 `stepOrder` 并校验它就是最后一个已完成步骤**，不符则拒绝并提示刷新。SSE 有延迟，发起撤回的人看到的「最后一步」可能已过时（别人刚点完下一步），不校验会误撤别人的步骤——与 `reorderPairs` 的过时保护同一思路。
+   - 连锁：清空该步 `completed_at` / `duration_sec` → 清空下一步的 `started_at`（它当初由本步完成时刻写入）→ pair 若为 `completed` 退回 `active`。
+   - **该步的 `started_at` 原样保留**（不重置为撤回时刻）：该步从上一步完成时刻就已开始，重做后的耗时应含误操作与纠正的全部墙上时间，与现场报表口径一致。
+   - 不落审计表，只 `broadcast("pair_updated", { action: "step_reverted" })`；改成落库需 schema 迁移。
+5. **权限三处一致**：判断逻辑集中在 `lib/permissions.ts`（`canCompleteStep` / `canRevertStep` / `canManagePairs` / `canEditInfo`），前端按钮与服务端 API 都调用它。**前端禁用仅为体验，真正的强制在服务端 API**（返回 401/403）。
    - 注意 PATCH 改 Info：`footprint` 任意登录用户可改；`rack` / `owner` 仅 admin 可改。
    - Team C（esxi）步骤只有 admin 能完成，见上文角色表下的告警。
+   - **撤回权限勿复用 `canCompleteStep`**：那个函数对 homison 的 Team B 步骤返回 true，复用等于把撤回权给了 homison。撤回是纠错动作，只归 admin。
 6. **`esxi_check` 创建后不可改**：`updatePairInfo` 不接受该字段。改变它需要增删步骤行并重排 `step_order`，当前不支持；如需支持要另做一套「动态插入步骤」的事务逻辑。
 6.5 **展示顺序（`sort_order`）是全局共享状态**：`reorderPairs(orderedIds)` 要求 `orderedIds` **恰好是当前全部 pair 的一个排列**，否则整体拒绝并提示刷新——拖拽期间若别人新建/删除了 pair，客户端列表已过时，写入会造成遗漏或错位。仅 admin 可调（走 `canManagePairs`），写后 `broadcast` 让所有人同步。前端 `PipelineOverview` 做乐观渲染，请求失败即回落到服务端顺序。
+ - 「按 Owner 排序」按钮同样落在这条路径上（前端算排列 → 复用 `/api/pairs/reorder`），**排序规则只在前端**：owner 升序（`localeCompare` 带 `numeric` + `sensitivity: "base"`，大小写不敏感、`eng9` 在 `eng10` 前），owner 为空的沉底，同 owner 内 `id` 倒序。因是持久化写入，点一次会覆盖此前所有人拖出的顺序，故加了 `window.confirm` 二次确认（拖拽是逐行小步调整、无需确认，一键排序是整表覆盖，两者口径不同）。
+ - 排序基准取 props 里的 `pairs`（服务端权威列表）而非 `ordered`（可能含乐观顺序），保证提交的一定是当前全部 pair 的排列。
 7. **CSV 导出安全**：`buildExportCsv` 用 `csvCell` 生成单元格——
    - **中和公式注入**：对以 `= + - @` 或控制字符（Tab/CR）开头的值加前缀单引号，防止 Excel/Sheets 把用户可控字段（如 switch 名称）当公式执行。
    - **RFC 4180 转义**：含逗号/引号/换行(`\r` 或 `\n`)的值用双引号包裹并将内部引号翻倍。
@@ -170,7 +179,7 @@ Dockerfile / .dockerignore   # 容器化
 ## 7. 实时同步（SSE）
 
 - 服务端 `lib/events.ts` 维护内存中的客户端集合，业务写操作后调用 `broadcast("pair_updated", {...})`。
-- 客户端 `hooks/usePairs.ts` 用 `EventSource` 订阅 `/api/events`，收到事件后重新拉取列表；`step_completed` 事件触发对应 Pair 的「最近更新」高亮（持续 10 秒）。
+- 客户端 `hooks/usePairs.ts` 用 `EventSource` 订阅 `/api/events`，收到事件后重新拉取列表；`step_completed` 与 `step_reverted` 事件触发对应 Pair 的「最近更新」高亮（持续 10 秒）。
 - **注意**：SSE 客户端集合是**单进程内存**状态，多实例水平扩展时广播不会跨进程（当前定位为单机内网部署，无此问题）。
 
 ## 8. 数据库迁移（`lib/db.ts`）
@@ -203,6 +212,7 @@ Dockerfile / .dockerignore   # 容器化
 | POST | `/api/pairs/reorder` | admin | 调整展示顺序 `{orderedIds: number[]}`（须是当前全部 pair 的一个排列） |
 | DELETE | `/api/pairs/:id` | admin | 删除 Pair |
 | POST | `/api/pairs/:id/steps/:order/complete` | 按步骤 team | 完成步骤 |
+| DELETE | `/api/pairs/:id/steps/:order/complete` | admin | 撤回步骤（`:order` 须是当前最后一个已完成步骤） |
 | GET | `/api/events` | 公开 | SSE 实时事件 |
 | GET | `/api/export` | 公开 | 下载 CSV |
 | POST/GET | `/api/auth/{login,logout,me}` | — | 登录 / 登出 / 当前会话 |

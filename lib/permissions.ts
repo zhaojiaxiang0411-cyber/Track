@@ -15,6 +15,13 @@ export function canCompleteStep(role: Role, team: Team): boolean {
   return false;
 }
 
+// 能否撤回已完成的步骤：仅 admin（cisco）
+// 刻意不复用 canCompleteStep —— 那个函数对 homison 的 Team B 步骤返回 true，
+// 复用会把撤回权一并给到 homison。撤回是纠错动作，只归 cisco。
+export function canRevertStep(role: Role): boolean {
+  return role === "admin";
+}
+
 // 能否新建 / 删除 pipeline：仅 admin（cisco）
 export function canManagePairs(role: Role): boolean {
   return role === "admin";

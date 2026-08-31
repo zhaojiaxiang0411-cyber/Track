@@ -327,6 +327,58 @@ export function completeStep(pairId: number, stepOrder: number): PairWithSteps {
   return updated;
 }
 
+// completeStep 的逆操作：把误点的步骤退回未完成，交回对应 team 重新点击。
+// 必须显式传入 stepOrder 并校验它就是当前最后一个已完成步骤：SSE 有延迟，
+// 发起撤回的人看到的「最后一步」可能已经过时（别人刚点完了下一步），
+// 不校验就会误撤掉别人刚完成的步骤。
+export function revertStepCompletion(
+  pairId: number,
+  stepOrder: number
+): PairWithSteps {
+  const db = getDb();
+  const pair = getPairById(pairId);
+  if (!pair) throw new Error("Pair 不存在");
+
+  // 严格顺序执行保证已完成步骤是连续前缀，故最后一个即 step_order 最大者
+  const completed = pair.steps.filter((s) => s.completed_at);
+  if (completed.length === 0) {
+    throw new Error("该 Pair 还没有已完成的步骤，无需撤回");
+  }
+  const lastCompleted = completed[completed.length - 1];
+  if (lastCompleted.step_order !== stepOrder) {
+    throw new Error(
+      `步骤已变化（当前最后完成的是 #${lastCompleted.step_order}），请刷新后重试`
+    );
+  }
+
+  runTransaction(() => {
+    // started_at 原样保留：该步从上一步完成时刻就已开始，重做后的耗时
+    // 应包含误操作与纠正的全部墙上时间，与现场报表口径一致。
+    db.prepare(
+      `UPDATE step_instances
+       SET completed_at = NULL, duration_sec = NULL
+       WHERE pair_id = ? AND step_order = ?`
+    ).run(pairId, stepOrder);
+
+    // 下一步的 started_at 当初是被本步的完成时刻写入的，一并清掉；
+    // 撤回的是最后一步时该行不存在，UPDATE 影响 0 行，无副作用。
+    db.prepare(
+      `UPDATE step_instances SET started_at = NULL WHERE pair_id = ? AND step_order = ?`
+    ).run(pairId, stepOrder + 1);
+
+    // 撤回最后一步意味着 pair 不再是完成态
+    if (pair.status === "completed") {
+      db.prepare("UPDATE pairs SET status = 'active' WHERE id = ?").run(pairId);
+    }
+  });
+
+  const updated = getPairById(pairId);
+  if (!updated) throw new Error("撤回失败");
+
+  broadcast("pair_updated", { pairId, action: "step_reverted", stepOrder });
+  return updated;
+}
+
 export function deletePair(pairId: number): void {
   const db = getDb();
   const result = db.prepare("DELETE FROM pairs WHERE id = ?").run(pairId);

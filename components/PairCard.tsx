@@ -1,8 +1,8 @@
 "use client";
 
 import { formatDateTime, formatDuration, teamLabel } from "@/lib/format";
-import { canCompleteStep } from "@/lib/permissions";
-import { isExcludedFromTiming } from "@/lib/pipeline";
+import { canCompleteStep, canRevertStep } from "@/lib/permissions";
+import { isExcludedFromTiming, resolveStepLabel } from "@/lib/pipeline";
 import { teamStyle } from "@/lib/teamStyles";
 import type { PairWithSteps, Role } from "@/lib/types";
 import { useState } from "react";
@@ -28,6 +28,7 @@ export function PairCard({
   highlighted,
 }: PairCardProps) {
   const [completing, setCompleting] = useState<number | null>(null);
+  const [reverting, setReverting] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [editing, setEditing] = useState(false);
   const [rackDraft, setRackDraft] = useState(pair.rack ?? "");
@@ -82,6 +83,28 @@ export function PairCard({
     }
   };
 
+  // 撤回带上具体 step_order：服务端要据此确认页面上看到的「最后一步」没有过时
+  const handleRevert = async (stepOrder: number, label: string, team: string) => {
+    const confirmed = window.confirm(
+      `确认撤回步骤 #${stepOrder}：${label}？\n该步骤将退回未完成，交回 ${team} 重新点击。`
+    );
+    if (!confirmed) return;
+    setReverting(true);
+    try {
+      const res = await fetch(
+        `/api/pairs/${pair.id}/steps/${stepOrder}/complete`,
+        { method: "DELETE" }
+      );
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? "撤回失败");
+      onUpdated();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "撤回失败");
+    } finally {
+      setReverting(false);
+    }
+  };
+
   const handleDelete = async () => {
     const confirmed = window.confirm(
       `确认删除 Pair ${pair.switch1}-${pair.switch2}？此操作不可恢复。`
@@ -113,6 +136,12 @@ export function PairCard({
       : undefined;
 
   const waitingTeam = pair.status === "completed" ? null : pair.waiting_team;
+
+  // 严格顺序执行保证已完成步骤是连续前缀，最后一个即可撤回的那一步
+  const lastCompletedStep = [...pair.steps]
+    .reverse()
+    .find((s) => s.completed_at);
+  const showRevert = canRevertStep(role) && Boolean(lastCompletedStep);
 
   const statusBadge =
     pair.status === "completed" ? (
@@ -250,6 +279,31 @@ export function PairCard({
         </div>
         <div className="flex items-center gap-2">
           {statusBadge}
+          {showRevert && lastCompletedStep && (
+            <button
+              type="button"
+              onClick={() =>
+                handleRevert(
+                  lastCompletedStep.step_order,
+                  resolveStepLabel(
+                    lastCompletedStep.action_key,
+                    lastCompletedStep.label
+                  ),
+                  teamLabel(lastCompletedStep.team)
+                )
+              }
+              disabled={reverting}
+              className="rounded-lg px-2 py-1 text-xs text-slate-500 ring-1 ring-slate-200 hover:bg-amber-50 hover:text-amber-700 disabled:opacity-60"
+              title={`撤回步骤 #${lastCompletedStep.step_order}：${resolveStepLabel(
+                lastCompletedStep.action_key,
+                lastCompletedStep.label
+              )}`}
+            >
+              {reverting
+                ? "撤回中…"
+                : `↩ 撤回 #${lastCompletedStep.step_order}`}
+            </button>
+          )}
           {canDelete && (
             <button
               type="button"
