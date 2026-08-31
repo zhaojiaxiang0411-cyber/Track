@@ -58,10 +58,11 @@ app/
 components/                  # 客户端 UI 组件（见下）
 hooks/
   useAuth.ts                 # 登录态管理
-  usePairs.ts                # 拉取 pairs + SSE 订阅 + 最近更新高亮
+  usePairs.ts                # 拉取 pairs + SSE 订阅 + 最近更新高亮 + owner/team 筛选
 lib/
   types.ts                   # 全部 TypeScript 类型
   pipeline.ts                # 流水线步骤模板（单一事实来源）+ buildPipelineSteps
+  owner.ts                   # owner 筛选的归一化与匹配（纯函数，服务端/客户端共用）
   teamStyles.ts              # Team 配色（Tailwind 类名字面量，服务端/客户端共用）
   db.ts                      # SQLite 连接、建表、迁移
   pairs.ts                   # 核心业务逻辑（CRUD、完成步骤、CSV）
@@ -78,6 +79,7 @@ Dockerfile / .dockerignore   # 容器化
 - `AuthBar.tsx`：登录 / 登出条
 - `CreatePairForm.tsx`：新建 Pair 表单（仅 admin 可见）
 - `PairFilter.tsx`：筛选条（全部 / 等 cisco / 等 homison / 已完成）
+- `OwnerFilter.tsx`：Owner 下拉筛选（「只看我的」），候选由全量 pair 去重生成
 - `PipelineOverview.tsx`：全部 Pair 的流水线总览，可跳转；admin 可拖拽行首手柄调整顺序，也可点「按 Owner 排序」一键重排
 - `PipelineProgressDots.tsx`：进度点
 - `PairCard.tsx`：单个 Pair 卡片（步骤、Info 编辑、删除）
@@ -148,6 +150,12 @@ Dockerfile / .dockerignore   # 容器化
 6.5 **展示顺序（`sort_order`）是全局共享状态**：`reorderPairs(orderedIds)` 要求 `orderedIds` **恰好是当前全部 pair 的一个排列**，否则整体拒绝并提示刷新——拖拽期间若别人新建/删除了 pair，客户端列表已过时，写入会造成遗漏或错位。仅 admin 可调（走 `canManagePairs`），写后 `broadcast` 让所有人同步。前端 `PipelineOverview` 做乐观渲染，请求失败即回落到服务端顺序。
  - 「按 Owner 排序」按钮同样落在这条路径上（前端算排列 → 复用 `/api/pairs/reorder`），**排序规则只在前端**：owner 升序（`localeCompare` 带 `numeric` + `sensitivity: "base"`，大小写不敏感、`eng9` 在 `eng10` 前），owner 为空的沉底，同 owner 内 `id` 倒序。因是持久化写入，点一次会覆盖此前所有人拖出的顺序，故加了 `window.confirm` 二次确认（拖拽是逐行小步调整、无需确认，一键排序是整表覆盖，两者口径不同）。
  - 排序基准取 props 里的 `pairs`（服务端权威列表）而非 `ordered`（可能含乐观顺序），保证提交的一定是当前全部 pair 的排列。
+6.6 **Owner 筛选（「只看我的」）是纯前端的个人视图偏好**，与全局共享的 `sort_order` 相反：不入库、不广播，存在各自浏览器的 `localStorage`（键 `track.owner-filter`），互不影响。
+ - 客户端本就一次性拉全量（`/api/pairs?filter=all`）再本地过滤，故无需新增 API 或查询参数。匹配逻辑在 `lib/owner.ts`：owner 是自由文本，**按 trim + 小写归一后比较**（`Eng9` 与 `eng9` 视为同一人，与「按 Owner 排序」的 `sensitivity: "base"` 同口径）；`UNASSIGNED_OWNER` 哨兵表示「owner 为空」，不能用空串（会与「全部 Owner」混淆）。
+ - **只过滤下方卡片列表，不过滤 Pipeline Overview**：总览是全局看板，缩掉它就看不到别人的进度了。`counts` 跟随 owner 子集，否则筛选条数字与列表对不上。
+ - 因总览仍显示全部，**点击被筛掉的行必须放开筛选**（`handleJumpToPair` 里同时 `setFilter("all")` 与清空 owner 筛选），否则点击毫无反应。选择被清空而非临时放开，是为了让下拉显示与实际生效的筛选始终一致。
+ - `localStorage` 只能在挂载后（`useEffect`）读取，写在 `useState` 初始值里会导致 SSR/CSR hydration 不一致；隐私模式下访问可能抛错，需 `try/catch` 兜住。
+ - 选中的 owner 可能被改名或删完，此时**保留它作为下拉选项并给空态提示**，不要静默回落成「全部」——否则界面显示「全部」而列表是空的，会让人以为 pipeline 丢了。
 7. **CSV 导出安全**：`buildExportCsv` 用 `csvCell` 生成单元格——
    - **中和公式注入**：对以 `= + - @` 或控制字符（Tab/CR）开头的值加前缀单引号，防止 Excel/Sheets 把用户可控字段（如 switch 名称）当公式执行。
    - **RFC 4180 转义**：含逗号/引号/换行(`\r` 或 `\n`)的值用双引号包裹并将内部引号翻倍。

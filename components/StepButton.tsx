@@ -21,11 +21,16 @@ type StepButtonProps = {
   id?: string;
 };
 
-function phaseLabel(actionKey: string, switch1: string, switch2: string): string {
+// 返回交换机名而非 phase 字面量：现场靠这一行确认在动哪台设备，需要单独加强样式
+function resolvePhaseTarget(
+  actionKey: string,
+  switch1: string,
+  switch2: string
+): { switchName: string | null; phase: string } {
   const phase = resolveStepPhase(actionKey);
-  if (phase === "SW1") return `SW ${switch1}`;
-  if (phase === "SW2") return `SW ${switch2}`;
-  return phase;
+  if (phase === "SW1") return { switchName: switch1, phase };
+  if (phase === "SW2") return { switchName: switch2, phase };
+  return { switchName: null, phase };
 }
 
 export function StepButton({
@@ -42,6 +47,7 @@ export function StepButton({
   const style = teamStyle(step.team);
   const isBusy = completing === step.step_order;
   const displayLabel = resolveStepLabel(step.action_key, step.label);
+  const phaseTarget = resolvePhaseTarget(step.action_key, switch1, switch2);
   // 当前步骤但无权操作（如 homison 看到 cisco 的步骤、或未登录）
   const isCurrentLocked = isCurrent && !isDone && !canComplete;
   const isActionable = isCurrent && !isDone && canComplete;
@@ -93,9 +99,16 @@ export function StepButton({
         #{step.step_order} · {teamLabel(step.team)}
       </span>
       <span className="font-medium leading-tight">{displayLabel}</span>
-      <span className="mt-0.5 text-[10px] opacity-75">
-        {phaseLabel(step.action_key, switch1, switch2)}
-      </span>
+      {phaseTarget.switchName ? (
+        <span className="mt-0.5 font-mono text-[12px] font-bold leading-tight tracking-tight">
+          <span className="font-normal opacity-60">SW </span>
+          {phaseTarget.switchName}
+        </span>
+      ) : (
+        <span className="mt-0.5 text-[10px] opacity-75">
+          {phaseTarget.phase}
+        </span>
+      )}
       {isDone && (
         <span className="mt-1 text-[10px] opacity-90">
           ✓ {formatDateTime(step.completed_at)}

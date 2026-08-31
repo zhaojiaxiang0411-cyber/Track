@@ -1,5 +1,6 @@
 "use client";
 
+import { matchesOwnerFilter } from "@/lib/owner";
 import type { PairFilter, PairWithSteps } from "@/lib/types";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -20,7 +21,15 @@ function filterPairs(all: PairWithSteps[], filter: PairFilter): PairWithSteps[] 
   }
 }
 
-export function usePairs(filter: PairFilter, enabled: boolean) {
+/**
+ * @param ownerFilter 只看某个 owner 的 pipeline（null = 全部）。它先于 team 筛选生效，
+ *   且只影响 pairs 与 counts；allPairs 始终是全量，Pipeline Overview 要留作全局看板。
+ */
+export function usePairs(
+  filter: PairFilter,
+  enabled: boolean,
+  ownerFilter: string | null = null
+) {
   const [allPairs, setAllPairs] = useState<PairWithSteps[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -80,20 +89,26 @@ export function usePairs(filter: PairFilter, enabled: boolean) {
     }
   }, [enabled]);
 
-  const pairs = useMemo(
-    () => filterPairs(allPairs, filter),
-    [allPairs, filter]
+  const ownedPairs = useMemo(
+    () => allPairs.filter((p) => matchesOwnerFilter(p.owner, ownerFilter)),
+    [allPairs, ownerFilter]
   );
 
+  const pairs = useMemo(
+    () => filterPairs(ownedPairs, filter),
+    [ownedPairs, filter]
+  );
+
+  // 计数跟随 owner 筛选，否则「等 homison 3」会算上别人的 pair，与列表看到的对不上
   const counts = useMemo(
     () => ({
-      all: allPairs.length,
-      waiting_a: allPairs.filter((p) => p.waiting_team === "A").length,
-      waiting_b: allPairs.filter((p) => p.waiting_team === "B").length,
-      waiting_c: allPairs.filter((p) => p.waiting_team === "C").length,
-      completed: allPairs.filter((p) => p.status === "completed").length,
+      all: ownedPairs.length,
+      waiting_a: ownedPairs.filter((p) => p.waiting_team === "A").length,
+      waiting_b: ownedPairs.filter((p) => p.waiting_team === "B").length,
+      waiting_c: ownedPairs.filter((p) => p.waiting_team === "C").length,
+      completed: ownedPairs.filter((p) => p.status === "completed").length,
     }),
-    [allPairs]
+    [ownedPairs]
   );
 
   useEffect(() => {
