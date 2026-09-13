@@ -132,9 +132,11 @@ Dockerfile / .dockerignore   # 容器化
 
 1. **严格顺序执行**：只能完成 `current_step_order`（第一个未完成步骤），否则 `completeStep` 抛错。
 2. **计时基准**：总耗时从 **Snapshot（`snapshot_sw1`）完成时刻** 起算，**不计入** Pipeline Start（`mw_start`）与 Snapshot 本身的耗时。CSV 导出同样排除这两步。判断统一走 `isExcludedFromTiming(action_key)`。
-3. **时区**：统一以**本地时间**（东八区）字符串 `YYYY-MM-DD HH:mm:ss` 写库与显示。
+3. **时区**：统一以**业务时区**（默认 `Asia/Shanghai`，东八区）的墙钟字符串 `YYYY-MM-DD HH:mm:ss` 写库与显示。
    - **必须用 `nowLocalString()`，禁止用 `new Date().toISOString()`**（那是 UTC，会偏 8 小时）。
-   - 解析用 `parseLocalTimeMs()`（`lib/format.ts`）。
+   - `nowLocalString()` 用 `Intl` 按固定业务时区取墙钟，**不依赖进程本地时区**。早期实现用 `d.getHours()` 等取进程本地时间，部署到 UTC 容器后写库时间早 8 小时，前端按浏览器时区（UTC+8）解析，「已进行」凭空多出 8 小时。需要改时区用环境变量 `APP_TIMEZONE`，不要改回进程本地时间。
+   - 同理，导出文件名等「今天是几号」的场景用 `todayLocalDate()`，别用 `toISOString().slice(0, 10)`。
+   - 解析用 `parseLocalTimeMs()`（`lib/format.ts`）。它按**解析方一侧的本地时区**还原，故服务端两个时间相减不受容器时区影响；但客户端 `LiveDuration` 是「业务时区字符串 vs 浏览器 `Date.now()`」的跨边界比较，**要求浏览器所在时区与业务时区一致**（现场同事均在东八区）。
 4. **完成步骤的连锁**：完成某步时写入 `completed_at` / `duration_sec`，并把下一步的 `started_at` 置为该完成时刻；最后一步完成则把 pair `status` 置 `completed`。
 4.5 **撤回步骤（`revertStepCompletion`）是 `completeStep` 的严格逆操作**，用于现场点错时把 pipeline 退回一步，仅 admin 可用（`canRevertStep`）。
    - **一次只退一步**：只能撤回当前**最后一个已完成**步骤（已完成步骤是连续前缀，故即 `step_order` 最大者）。想多退就多点几次。
@@ -183,6 +185,8 @@ Dockerfile / .dockerignore   # 容器化
 | `AUTH_CISCO_PASSWORD` | cisco 账号密码 | `cisco` |
 | `AUTH_HOMISON_PASSWORD` | homison 账号密码 | `homison` |
 | `AUTH_COOKIE_SECURE` | `true` 时 Cookie 仅经 HTTPS 下发（内网 http 部署保持默认） | `false` |
+| `APP_TIMEZONE` | 业务时区（写库/显示的墙钟基准），IANA 名称 | `Asia/Shanghai` |
+| `TZ` | 进程时区，只影响日志可读性；业务时间不依赖它（`Dockerfile` 已设东八区） | 容器为 `Asia/Shanghai` |
 
 ## 7. 实时同步（SSE）
 

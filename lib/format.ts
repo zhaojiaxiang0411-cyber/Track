@@ -10,15 +10,55 @@ export function teamLabel(team: Team): string {
   return TEAM_LABELS[team];
 }
 
-// 返回本地时间字符串（YYYY-MM-DD HH:mm:ss），与 formatDateTime 的本地时间解析保持一致。
-// 不能用 new Date().toISOString()，那是 UTC，会比本地时间偏 8 小时。
+// 业务时区：写库与显示的时间一律取该时区的墙钟，默认东八区。
+// 不能依赖进程本地时区（d.getHours() 等）——容器默认 UTC，会把时间写成早 8 小时的
+// 墙钟，前端再按浏览器时区（UTC+8）解析，「已进行」就凭空多出 8 小时。
+const DEFAULT_BUSINESS_TIME_ZONE = "Asia/Shanghai";
+
+function businessTimeZone(): string {
+  // 客户端打包里读不到该环境变量，取不到时回落默认时区。
+  const fromEnv =
+    typeof process !== "undefined" ? process.env.APP_TIMEZONE : undefined;
+  const trimmed = fromEnv?.trim();
+  return trimmed ? trimmed : DEFAULT_BUSINESS_TIME_ZONE;
+}
+
+let cachedFormatter: Intl.DateTimeFormat | null = null;
+let cachedTimeZone = "";
+
+function businessTimeFormatter(): Intl.DateTimeFormat {
+  const timeZone = businessTimeZone();
+  if (!cachedFormatter || cachedTimeZone !== timeZone) {
+    cachedFormatter = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      hourCycle: "h23", // 勿用 hour12: false，部分实现会把午夜输出成 24 点
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+    cachedTimeZone = timeZone;
+  }
+  return cachedFormatter;
+}
+
+// 返回业务时区的时间字符串（YYYY-MM-DD HH:mm:ss），与 formatDateTime 的解析格式保持一致。
+// 不能用 new Date().toISOString()，那是 UTC，会比东八区偏 8 小时。
 export function nowLocalString(): string {
-  const d = new Date();
-  const pad = (n: number) => String(n).padStart(2, "0");
+  const parts = businessTimeFormatter().formatToParts(new Date());
+  const pick = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((p) => p.type === type)?.value ?? "00";
   return (
-    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
-    `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+    `${pick("year")}-${pick("month")}-${pick("day")} ` +
+    `${pick("hour")}:${pick("minute")}:${pick("second")}`
   );
+}
+
+// 业务时区的当天日期（YYYY-MM-DD），用于导出文件名等场景。
+export function todayLocalDate(): string {
+  return nowLocalString().slice(0, 10);
 }
 
 export function parseLocalTimeMs(value: string): number {

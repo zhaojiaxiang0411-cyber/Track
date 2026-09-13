@@ -1,3 +1,4 @@
+import { todayLocalDate } from "@/lib/format";
 import { buildExportCsv } from "@/lib/pairs";
 import { NextResponse } from "next/server";
 
@@ -7,7 +8,8 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   try {
     const csv = buildExportCsv();
-    const filename = `switch-replacement-${new Date().toISOString().slice(0, 10)}.csv`;
+    // 文件名日期取业务时区当天，toISOString() 是 UTC，凌晨导出会写成前一天。
+    const filename = `switch-replacement-${todayLocalDate()}.csv`;
     return new NextResponse(csv, {
       headers: {
         "Content-Type": "text/csv; charset=utf-8",
