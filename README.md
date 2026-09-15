@@ -9,6 +9,7 @@
 - 新建时可勾选 **Esxi Check**：共插入三次——每台交换机的 Label and Unplug Downlinks 与 Decommission 之间各一次，流水线末尾再收尾一次，流水线变为 17 步（创建后不可更改）
 - cisco（蓝色）/ homison（橙色）/ esxi（紫色）分工可视化
 - 一方完成后点击，另一方实时看到可执行步骤（SSE 推送）
+- 点完自己的步骤后不确定对方看到了，可在该 pipeline 上「呼叫对方确认」：提示直接出现在**对应 pipeline 的卡片里**（若该卡片被筛选挡住，页面顶部会兜底提示一条，点击可跳过去），对方点「已收到」后你就能看到确认时刻；对方直接点了下一步则视为已看到，呼叫自动消失。按钮只在**轮到对方的步骤进行中**时可点（轮到自己时置灰）
 - 记录每步 `started_at`、`completed_at`、`duration_sec`
 - 筛选：全部 / 等 cisco / 等 homison / 等 esxi / 已完成
 - CSV 导出全部时间记录
@@ -23,7 +24,9 @@
 
 - esxi 没有独立账号：Esxi Check 由 esxi 团队负责执行，但在系统里由 cisco（管理员）代为点击完成。
 
-- 游客（未登录）为**只读**：可查看全部 pipeline、实时更新（SSE）并导出 CSV，但**不能做任何修改**（完成步骤 / 新建 / 删除）。
+- 「呼叫对方确认」两个登录账号都能发起，对象恒为另一方（cisco 呼叫 homison，homison 呼叫 cisco）；回执只有被呼叫方能点，发起方不能自己点掉，否则这个确认就没有意义了。
+- 呼叫只在**被呼叫方的步骤进行中**时才能发起：cisco 要等流水线走到 homison 的步骤，homison 要等走到 cisco 的步骤（Esxi Check 由 cisco 代点，算 cisco 的步骤）。等自己干活时催对方没有意义，按钮置灰并给出提示。
+- 游客（未登录）为**只读**：可查看全部 pipeline、实时更新（SSE）并导出 CSV，但**不能做任何修改**（完成步骤 / 新建 / 删除 / 呼叫）。
 - 写操作权限在**服务端 API 强制校验**，前端按钮的禁用/隐藏仅为体验优化，直接调用 API 同样会被拦截（401/403）。
 - 会话用 HMAC 签名的 `httpOnly` Cookie 保存，默认有效期 12 小时。
 
@@ -108,8 +111,14 @@ SQLite 数据库文件：`data/track.db`（首次启动自动创建）
 | POST | `/api/pairs/:id/steps/:order/complete` | 完成步骤 |
 | DELETE | `/api/pairs/:id/steps/:order/complete` | 撤回步骤（仅 cisco，`:order` 须是最后一个已完成步骤） |
 | DELETE | `/api/pairs/:id` | 删除 Pair |
+| POST | `/api/pairs/:id/ping` | 呼叫对方确认（登录用户，对象恒为另一方；仅当前步骤由对方负责时可发起） |
+| DELETE | `/api/pairs/:id/ping` | 收起呼叫（仅发起方） |
+| POST | `/api/pairs/:id/ping/ack` | 回执「已收到」（仅被呼叫方） |
+| GET | `/api/pings` | 当前有效的呼叫列表 |
 | GET | `/api/events` | SSE 实时事件 |
 | GET | `/api/export` | 下载 CSV |
+
+> 呼叫状态只存服务端内存，不入库、不进 CSV：它是几分钟内就该消化掉的临时提示，权威状态始终是步骤进度本身。服务重启会丢掉待确认的呼叫，没人确认就再点一次即可。
 
 ## 生产部署建议
 

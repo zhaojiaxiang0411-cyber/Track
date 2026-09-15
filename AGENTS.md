@@ -9,6 +9,7 @@
 - 多个 Team 通过颜色状态协作，按固定顺序逐步完成一条流水线（14 步；勾选 Esxi Check 后 17 步）。
 - 自动记录每步的开始 / 完成时间与耗时，支持多个 Pair（成对交换机）并行跟踪。
 - 通过 SSE 实时推送，任意一方完成步骤后，其他人浏览器即时看到更新。
+- 按需的「呼叫对方确认」：点完步骤后不确定对方看到了，可主动喊一声要一个「已收到」回执。
 - 支持登录与基于角色的权限控制，以及全量时间记录的 CSV 导出。
 
 ### Team 与角色映射（重要，容易混淆）
@@ -53,12 +54,16 @@ app/
     pairs/route.ts                    # GET 列表(公开) / POST 新建(admin)
     pairs/[id]/route.ts               # GET(公开) / PATCH 改Info / DELETE(admin)
     pairs/[id]/steps/[order]/complete/route.ts  # POST 完成步骤 / DELETE 撤回步骤(admin)
+    pairs/[id]/ping/route.ts          # POST 发起呼叫 / DELETE 收起(仅发起方)
+    pairs/[id]/ping/ack/route.ts      # POST 回执「已收到」(仅被呼叫方)
+    pings/route.ts                    # GET 当前有效呼叫列表(公开)
     events/route.ts                   # SSE 实时事件流
     export/route.ts                   # CSV 导出
 components/                  # 客户端 UI 组件（见下）
 hooks/
   useAuth.ts                 # 登录态管理
   usePairs.ts                # 拉取 pairs + SSE 订阅 + 最近更新高亮 + owner/team 筛选
+  usePings.ts                # 拉取呼叫状态 + SSE 订阅（ping_updated / pair_updated）
 lib/
   types.ts                   # 全部 TypeScript 类型
   pipeline.ts                # 流水线步骤模板（单一事实来源）+ buildPipelineSteps
@@ -68,7 +73,9 @@ lib/
   pairs.ts                   # 核心业务逻辑（CRUD、完成步骤、CSV）
   auth.ts                    # 会话签名/校验、账号、认证
   permissions.ts             # 纯权限判断函数（服务端+客户端共用）
-  events.ts                  # SSE 客户端注册与广播
+  events.ts                  # SSE 客户端注册与广播（服务端）
+  sseClient.ts               # 浏览器端共享的 /api/events 连接（引用计数单例）
+  pings.ts                   # 「呼叫对方确认」的内存态（不入库）
   format.ts                  # Team 名称、本地时间、时长格式化
 data/track.db                # SQLite 数据文件（首次启动自动创建，.gitignore）
 Dockerfile / .dockerignore   # 容器化
@@ -82,9 +89,11 @@ Dockerfile / .dockerignore   # 容器化
 - `OwnerFilter.tsx`：Owner 下拉筛选（「只看我的」），候选由全量 pair 去重生成
 - `PipelineOverview.tsx`：全部 Pair 的流水线总览，可跳转；admin 可拖拽行首手柄调整顺序，也可点「按 Owner 排序」一键重排
 - `PipelineProgressDots.tsx`：进度点
-- `PairCard.tsx`：单个 Pair 卡片（步骤、Info 编辑、删除）
+- `PairCard.tsx`：单个 Pair 卡片（步骤、Info 编辑、删除、呼叫对方确认）
+- `PingNotice.tsx`：卡片内的呼叫提示条（被呼叫方带「已收到」，发起方看等待/已确认 + 再催一次/收起）
 - `StepButton.tsx`：单个步骤按钮（按权限/顺序启用）
 - `LiveDuration.tsx`：进行中步骤的实时耗时显示
+- `PingBanner.tsx`：顶部 sticky 呼叫横幅，**仅兜底**——只渲染当前卡片列表里看不到（被筛掉）的 pair 的呼叫
 
 ## 4. 核心数据模型
 
@@ -144,7 +153,7 @@ Dockerfile / .dockerignore   # 容器化
    - 连锁：清空该步 `completed_at` / `duration_sec` → 清空下一步的 `started_at`（它当初由本步完成时刻写入）→ pair 若为 `completed` 退回 `active`。
    - **该步的 `started_at` 原样保留**（不重置为撤回时刻）：该步从上一步完成时刻就已开始，重做后的耗时应含误操作与纠正的全部墙上时间，与现场报表口径一致。
    - 不落审计表，只 `broadcast("pair_updated", { action: "step_reverted" })`；改成落库需 schema 迁移。
-5. **权限三处一致**：判断逻辑集中在 `lib/permissions.ts`（`canCompleteStep` / `canRevertStep` / `canManagePairs` / `canEditInfo`），前端按钮与服务端 API 都调用它。**前端禁用仅为体验，真正的强制在服务端 API**（返回 401/403）。
+5. **权限三处一致**：判断逻辑集中在 `lib/permissions.ts`（`canCompleteStep` / `canRevertStep` / `canManagePairs` / `canEditInfo` / `isCollaborator` / `canSendPing` / `canAckPing`），前端按钮与服务端 API 都调用它。**前端禁用仅为体验，真正的强制在服务端 API**（返回 401/403）。
    - 注意 PATCH 改 Info：`footprint` 任意登录用户可改；`rack` / `owner` 仅 admin 可改。
    - Team C（esxi）步骤只有 admin 能完成，见上文角色表下的告警。
    - **撤回权限勿复用 `canCompleteStep`**：那个函数对 homison 的 Team B 步骤返回 true，复用等于把撤回权给了 homison。撤回是纠错动作，只归 admin。
@@ -158,6 +167,18 @@ Dockerfile / .dockerignore   # 容器化
  - 因总览仍显示全部，**点击被筛掉的行必须放开筛选**（`handleJumpToPair` 里同时 `setFilter("all")` 与清空 owner 筛选），否则点击毫无反应。选择被清空而非临时放开，是为了让下拉显示与实际生效的筛选始终一致。
  - `localStorage` 只能在挂载后（`useEffect`）读取，写在 `useState` 初始值里会导致 SSR/CSR hydration 不一致；隐私模式下访问可能抛错，需 `try/catch` 兜住。
  - 选中的 owner 可能被改名或删完，此时**保留它作为下拉选项并给空态提示**，不要静默回落成「全部」——否则界面显示「全部」而列表是空的，会让人以为 pipeline 丢了。
+6.7 **「呼叫对方确认」（`lib/pings.ts`）是按需的临时协作提示，只存服务端内存**，不入库、不进 CSV。现场诉求是「我点完了，但不确定对方看到没有」，所以它是人主动发起的，**不是每步自动回执**——正常流转不打扰任何人。
+ - **状态刻意不落库**：一次呼叫几分钟内就该消化掉，权威状态始终是 pipeline 的步骤进度。与 `lib/events.ts` 的 SSE 客户端集合同性质：重启即丢（没人确认就再点一次）、多实例不共享。要改成持久化就得加表并做迁移，届时才有「事后追溯谁催过谁」的能力。
+ - **对方推进流水线即视为隐式确认**：呼叫记录发起时的 `current_step_order`，`GET /api/pings` 拿 `listPairs()` 对照，步骤号一变（或 pair 被删）就作废并清出内存。流水线往前走本身就是最强的「我看到了」，这条规则让横幅不会变成永远挂着的垃圾状态。作废判断刻意放在**路由层**，好让 `lib/pings.ts` 不依赖数据库层。
+ - **一个 pair 同时只有一个呼叫**（`Map<pairId, Ping>`）：重复点等于「再催一次」，只刷新发起时刻并清掉旧回执，不堆积成一串横幅。
+ - **只有被呼叫方的步骤进行中时才能发起**（`canSendPing(role, waitingTeam)`）：等着自己干活时去催对方毫无意义。步骤归属用 `teamOwnerRole(team)` 判断（A/C → `admin`、B → `homison`；Team C 由 cisco 代点，故算 cisco 的活），**勿复用 `canCompleteStep`**——那个函数对 admin 的任意 team 都返回 true，会把 Team B 也算成 cisco 的活，homison 就能随时呼叫 cisco 了。服务端按 `pair.waiting_team` 强制（403），前端 `PairCard` 同规则**置灰而非隐藏**，免得现场同事以为功能没了。
+ - **`canSendPing` 不再兼任「是否登录」判断**，那部分拆到 `isCollaborator(role)`：收起呼叫、回执、`usePings` 拉数据都用它。`canAckPing` 刻意不看步骤归属——呼叫发出后对方可能已推进流水线，回执是给发起方看的，不该因为时机变了就点不动。
+ - **回执只有被呼叫方能点**（`canAckPing`）：让发起方能自己点掉，这功能就成了自问自答。方向用 `Role`（`pingTargetRole`）而非 `Team` 表达——Team C（esxi）没有账号，「呼叫 esxi」没人能确认。
+ - TTL 判断用**真实 epoch 毫秒**（`PingRecord.createdAtMs`），不要拿 `createdAt` 墙钟字符串去和 `Date.now()` 相减——那是第 3 条点名的跨时区边界比较。
+ - `next dev` 首次编译某路由或热更新会重新实例化该模块，**开发中呼叫会凭空消失**；生产构建下所有路由共用同一实例，不会发生。排查时别误判成 bug。
+ - **提示渲染在对应 pair 的卡片里**（`PingNotice`，插在 `PairCard` 头部与进度点之间），不在页面顶部：呼叫永远是针对某条 pipeline 的某一步，脱离那张卡片就得靠「Pair 201 – 202」这种文字回指，且与自己无关的人也被迫看着。顶部 `PingBanner` 因此退化为**兜底**，只渲染 `visiblePairIds` 里没有的 pair——卡片可能被筛选条 / Owner 筛选挡掉，那样呼叫会石沉大海。
+ - 同一张卡片里**不要两处表达同一个呼叫**：`PairCard` 头部只保留「从零发起」的按钮（`showPing && !myPing`），已喊过之后的状态、「再催一次」与「收起」全归 `PingNotice`。
+ - `PipelineOverview` 的行内标记只是**导航线索**（待你确认 / 已呼叫 / 已确认），不带任何操作按钮——总览行整行是跳转热区，内嵌按钮会和 admin 的拖拽排序抢事件。
 7. **CSV 导出安全**：`buildExportCsv` 用 `csvCell` 生成单元格——
    - **中和公式注入**：对以 `= + - @` 或控制字符（Tab/CR）开头的值加前缀单引号，防止 Excel/Sheets 把用户可控字段（如 switch 名称）当公式执行。
    - **RFC 4180 转义**：含逗号/引号/换行(`\r` 或 `\n`)的值用双引号包裹并将内部引号翻倍。
@@ -191,7 +212,9 @@ Dockerfile / .dockerignore   # 容器化
 ## 7. 实时同步（SSE）
 
 - 服务端 `lib/events.ts` 维护内存中的客户端集合，业务写操作后调用 `broadcast("pair_updated", {...})`。
-- 客户端 `hooks/usePairs.ts` 用 `EventSource` 订阅 `/api/events`，收到事件后重新拉取列表；`step_completed` 与 `step_reverted` 事件触发对应 Pair 的「最近更新」高亮（持续 10 秒）。
+- 事件有两种：`pair_updated`（pipeline 数据变化）与 `ping_updated`（呼叫状态变化，payload `{pairId, action: created|acked|dismissed}`）。**呼叫刻意不复用 `pair_updated`**——那个事件会让 `usePairs` 重拉全量 pairs，呼叫不该触发这个开销。
+- 客户端**每个标签页只开一条 `EventSource`**：`lib/sseClient.ts` 是引用计数的单例，`usePairs` 与 `usePings` 都通过 `subscribeSse(event, handler)` 挂载。**新增 hook 时不要自己 `new EventSource`**——HTTP/1.1 下同域名并发连接上限 6 条，SSE 是常驻连接，一个标签页开两条的话开三四个标签页就把额度吃光，之后所有普通 fetch 都会排队卡住。
+- `usePairs` 收到 `pair_updated` 后重拉列表；`step_completed` 与 `step_reverted` 触发对应 Pair 的「最近更新」高亮（持续 10 秒）。`usePings` 同时订阅两个事件——订阅 `pair_updated` 是为了让「对方推进流水线即隐式确认」的自动作废及时反映到界面。
 - **注意**：SSE 客户端集合是**单进程内存**状态，多实例水平扩展时广播不会跨进程（当前定位为单机内网部署，无此问题）。
 
 ## 8. 数据库迁移（`lib/db.ts`）
@@ -225,6 +248,10 @@ Dockerfile / .dockerignore   # 容器化
 | DELETE | `/api/pairs/:id` | admin | 删除 Pair |
 | POST | `/api/pairs/:id/steps/:order/complete` | 按步骤 team | 完成步骤 |
 | DELETE | `/api/pairs/:id/steps/:order/complete` | admin | 撤回步骤（`:order` 须是当前最后一个已完成步骤） |
+| POST | `/api/pairs/:id/ping` | 任意登录 | 发起/再催一次呼叫，对象由 `pingTargetRole` 推断；pipeline 已完成则 400，当前步骤不由对方负责则 403 |
+| DELETE | `/api/pairs/:id/ping` | 仅发起方 | 收起呼叫（呼叫已失效时幂等返回 ok） |
+| POST | `/api/pairs/:id/ping/ack` | 仅被呼叫方 | 回执「已收到」 |
+| GET | `/api/pings` | 公开 | 当前有效呼叫（顺带作废已被推进/删除的） |
 | GET | `/api/events` | 公开 | SSE 实时事件 |
 | GET | `/api/export` | 公开 | 下载 CSV |
 | POST/GET | `/api/auth/{login,logout,me}` | — | 登录 / 登出 / 当前会话 |
@@ -267,5 +294,6 @@ docker run -p 3000:3000 -v $(pwd)/data:/app/data \
 
 - 默认开发密钥与默认密码不安全，**生产必须用环境变量覆盖**。
 - SSE 为单进程内存广播，不支持多实例水平扩展。
+- 「呼叫对方确认」同为单进程内存态：重新部署会丢掉待确认的呼叫，且不留痕（无法事后追溯谁催过谁）。这是刻意取舍，需要留痕就得加表 + 迁移。
 - 若文档（`README.md` / 本文件）与代码出现分歧，一律以 `lib/` 实现为准。
 - SQLite 单文件 + WAL，定位单机内网；高并发/分布式场景需更换存储。

@@ -1,6 +1,7 @@
 "use client";
 
 import { matchesOwnerFilter } from "@/lib/owner";
+import { subscribeSse } from "@/lib/sseClient";
 import type { PairFilter, PairWithSteps } from "@/lib/types";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -123,29 +124,21 @@ export function usePairs(
   useEffect(() => {
     if (!enabled) return;
 
-    const source = new EventSource("/api/events");
     const timers = hintTimers.current;
 
-    source.addEventListener("pair_updated", (event) => {
+    const unsubscribe = subscribeSse("pair_updated", (payload) => {
       fetchPairs();
-      try {
-        const data = JSON.parse((event as MessageEvent).data) as {
-          pairId?: number;
-          action?: string;
-        };
-        // 步骤被撤回同样要高亮：其他人正等着重做这一步，需要引起注意
-        const isStepChange =
-          data.action === "step_completed" || data.action === "step_reverted";
-        if (isStepChange && typeof data.pairId === "number") {
-          markRecentlyUpdated(data.pairId);
-        }
-      } catch {
-        /* ignore malformed event payloads */
+      const data = (payload ?? {}) as { pairId?: number; action?: string };
+      // 步骤被撤回同样要高亮：其他人正等着重做这一步，需要引起注意
+      const isStepChange =
+        data.action === "step_completed" || data.action === "step_reverted";
+      if (isStepChange && typeof data.pairId === "number") {
+        markRecentlyUpdated(data.pairId);
       }
     });
 
     return () => {
-      source.close();
+      unsubscribe();
       for (const timer of timers.values()) clearTimeout(timer);
       timers.clear();
     };

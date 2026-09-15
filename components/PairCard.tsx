@@ -1,12 +1,19 @@
 "use client";
 
-import { formatDateTime, formatDuration, teamLabel } from "@/lib/format";
-import { canCompleteStep, canRevertStep } from "@/lib/permissions";
+import { formatDateTime, formatDuration, roleLabel, teamLabel } from "@/lib/format";
+import {
+  canCompleteStep,
+  canRevertStep,
+  canSendPing,
+  isCollaborator,
+  pingTargetRole,
+} from "@/lib/permissions";
 import { isExcludedFromTiming, resolveStepLabel } from "@/lib/pipeline";
 import { teamStyle } from "@/lib/teamStyles";
-import type { PairWithSteps, Role } from "@/lib/types";
+import type { PairWithSteps, Ping, Role } from "@/lib/types";
 import { useState } from "react";
 import { LiveDuration } from "./LiveDuration";
+import { PingNotice } from "./PingNotice";
 import { PipelineProgressDots } from "./PipelineProgressDots";
 import { StepButton } from "./StepButton";
 
@@ -17,6 +24,11 @@ type PairCardProps = {
   canEditInfo?: boolean;
   onUpdated: () => void;
   highlighted?: boolean;
+  /** 该 pair 当前的呼叫（无则 null），由卡片内的 PingNotice 呈现与消化 */
+  ping?: Ping | null;
+  onSendPing?: (pairId: number) => Promise<void>;
+  onAckPing?: (pairId: number) => Promise<void>;
+  onDismissPing?: (pairId: number) => Promise<void>;
 };
 
 export function PairCard({
@@ -26,9 +38,14 @@ export function PairCard({
   canEditInfo = false,
   onUpdated,
   highlighted,
+  ping = null,
+  onSendPing,
+  onAckPing,
+  onDismissPing,
 }: PairCardProps) {
   const [completing, setCompleting] = useState<number | null>(null);
   const [reverting, setReverting] = useState(false);
+  const [pinging, setPinging] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [editing, setEditing] = useState(false);
   const [rackDraft, setRackDraft] = useState(pair.rack ?? "");
@@ -105,6 +122,18 @@ export function PairCard({
     }
   };
 
+  const handleSendPing = async () => {
+    if (!onSendPing) return;
+    setPinging(true);
+    try {
+      await onSendPing(pair.id);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "呼叫失败");
+    } finally {
+      setPinging(false);
+    }
+  };
+
   const handleDelete = async () => {
     const confirmed = window.confirm(
       `确认删除 Pair ${pair.switch1}-${pair.switch2}？此操作不可恢复。`
@@ -142,6 +171,28 @@ export function PairCard({
     .reverse()
     .find((s) => s.completed_at);
   const showRevert = canRevertStep(role) && Boolean(lastCompletedStep);
+
+  // 呼叫对方确认：pipeline 已完成就没什么要确认的了，按钮随之隐去
+  const pingTarget = pingTargetRole(role);
+  const showPing =
+    isCollaborator(role) && pingTarget !== null && pair.status !== "completed";
+  // 只在对方的步骤进行中才能喊；轮到自己干活时按钮置灰而非消失，
+  // 免得现场同事以为功能没了（真正的强制在 POST /api/pairs/:id/ping）。
+  const canPingNow = canSendPing(role, waitingTeam);
+  // 已经喊过一次之后，状态与「再催一次 / 收起」都交给下面的 PingNotice，
+  // 头部只保留「从零发起」这一个入口，避免同一张卡片里两处说同一件事。
+  const myPing = ping && ping.fromRole === role ? ping : null;
+  const pingNotice =
+    ping && isCollaborator(role) && onSendPing && onAckPing && onDismissPing ? (
+      <PingNotice
+        ping={ping}
+        role={role}
+        onAck={onAckPing}
+        onDismiss={onDismissPing}
+        onResend={onSendPing}
+        canResend={canPingNow && pair.status !== "completed"}
+      />
+    ) : null;
 
   const statusBadge =
     pair.status === "completed" ? (
@@ -279,6 +330,23 @@ export function PairCard({
         </div>
         <div className="flex items-center gap-2">
           {statusBadge}
+          {showPing && !myPing && (
+            <button
+              type="button"
+              onClick={handleSendPing}
+              disabled={pinging || !canPingNow}
+              title={
+                canPingNow
+                  ? `让 ${pingTarget ? roleLabel(pingTarget) : "对方"} 回一个「已收到」，确认他已经看到轮到自己了`
+                  : `当前步骤不由 ${pingTarget ? roleLabel(pingTarget) : "对方"} 负责，轮到对方时才能呼叫确认`
+              }
+              className="rounded-lg px-2 py-1 text-xs font-medium text-slate-500 ring-1 ring-slate-200 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent disabled:hover:text-slate-500"
+            >
+              {pinging
+                ? "呼叫中…"
+                : `呼叫 ${pingTarget ? roleLabel(pingTarget) : ""} 确认`}
+            </button>
+          )}
           {showRevert && lastCompletedStep && (
             <button
               type="button"
@@ -316,6 +384,8 @@ export function PairCard({
           )}
         </div>
       </header>
+
+      {pingNotice}
 
       <div className="mb-3 rounded-lg bg-slate-50 px-3 py-2">
         <PipelineProgressDots

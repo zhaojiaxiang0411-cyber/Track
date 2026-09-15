@@ -1,8 +1,8 @@
 "use client";
 
-import { teamLabel } from "@/lib/format";
+import { roleLabel, teamLabel } from "@/lib/format";
 import { teamStyle } from "@/lib/teamStyles";
-import type { PairWithSteps } from "@/lib/types";
+import type { PairWithSteps, Ping, Role } from "@/lib/types";
 import { useEffect, useMemo, useState } from "react";
 import { PipelineProgressDots } from "./PipelineProgressDots";
 
@@ -12,6 +12,9 @@ type PipelineOverviewProps = {
   recentlyUpdated?: ReadonlySet<number>;
   canReorder?: boolean;
   onReorder?: (orderedIds: number[]) => Promise<void>;
+  /** 呼叫提示本体在各自卡片里，总览只标出哪条 pipeline 上有呼叫，点击可跳过去 */
+  pingByPairId?: ReadonlyMap<number, Ping>;
+  role?: Role;
 };
 
 export function PipelineOverview({
@@ -20,6 +23,8 @@ export function PipelineOverview({
   recentlyUpdated,
   canReorder = false,
   onReorder,
+  pingByPairId,
+  role = "guest",
 }: PipelineOverviewProps) {
   const [dragId, setDragId] = useState<number | null>(null);
   const [overId, setOverId] = useState<number | null>(null);
@@ -173,6 +178,10 @@ export function PipelineOverview({
       <div className="space-y-2">
         {ordered.map((pair) => {
           const justUpdated = recentlyUpdated?.has(pair.id) ?? false;
+          const ping = pingByPairId?.get(pair.id) ?? null;
+          const incomingPing =
+            ping && ping.toRole === role && !ping.ackedAt ? ping : null;
+          const myPing = ping && ping.fromRole === role ? ping : null;
           const isDragging = dragId === pair.id;
           const isDropTarget = canReorder && overId === pair.id && !isDragging;
           return (
@@ -256,6 +265,25 @@ export function PipelineOverview({
               <span className="inline-flex animate-pulse items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
                 <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" />
                 刚更新
+              </span>
+            )}
+            {incomingPing && (
+              <span className="inline-flex animate-pulse items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500" />
+                {roleLabel(incomingPing.fromRole)} 待你确认
+              </span>
+            )}
+            {myPing && (
+              <span
+                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                  myPing.ackedAt
+                    ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                    : "bg-slate-200 text-slate-600"
+                }`}
+              >
+                {myPing.ackedAt
+                  ? `${roleLabel(myPing.toRole)} 已确认`
+                  : `已呼叫 ${roleLabel(myPing.toRole)}`}
               </span>
             )}
             <span className="ml-auto text-[10px] text-slate-400">

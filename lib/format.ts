@@ -1,4 +1,4 @@
-import type { Team } from "./types";
+import type { Role, Team } from "./types";
 
 export const TEAM_LABELS: Record<Team, string> = {
   A: "cisco",
@@ -8,6 +8,19 @@ export const TEAM_LABELS: Record<Team, string> = {
 
 export function teamLabel(team: Team): string {
   return TEAM_LABELS[team];
+}
+
+// 账号所属 Team：admin 就是 cisco（A）、homison 就是 B。guest 不属于任何 Team。
+// 有了它，按角色渲染的 UI（如呼叫横幅）可以直接复用 teamStyles 的配色与 teamLabel。
+export function roleTeam(role: Role): Team | null {
+  if (role === "admin") return "A";
+  if (role === "homison") return "B";
+  return null;
+}
+
+export function roleLabel(role: Role): string {
+  const team = roleTeam(role);
+  return team ? teamLabel(team) : "访客";
 }
 
 // 业务时区：写库与显示的时间一律取该时区的墙钟，默认东八区。

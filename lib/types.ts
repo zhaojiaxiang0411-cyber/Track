@@ -57,6 +57,22 @@ export type PairFilter =
 // admin = cisco（全部权限）；homison = 仅 homison 步骤；guest = 未登录只读
 export type Role = "admin" | "homison" | "guest";
 
+/**
+ * 一次「呼叫对方确认」。点完步骤后不确定对方看到了，就主动喊一声，对方回执「已收到」。
+ * 与其他类型不同，它不是数据库行——只存服务端内存（见 lib/pings.ts）。
+ */
+export interface Ping {
+  pairId: number;
+  /** 发起时该 pair 的 current_step_order；对方推进流水线后据此自动作废 */
+  stepOrder: number | null;
+  fromRole: Role;
+  /** 被呼叫方，恒为另一方（见 pingTargetRole） */
+  toRole: Role;
+  /** 业务时区墙钟字符串（nowLocalString） */
+  createdAt: string;
+  ackedAt: string | null;
+}
+
 export interface SessionUser {
   username: string;
   role: Role;

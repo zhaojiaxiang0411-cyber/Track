@@ -5,14 +5,16 @@ import { CreatePairForm } from "@/components/CreatePairForm";
 import { OwnerFilterSelect } from "@/components/OwnerFilter";
 import { PairCard } from "@/components/PairCard";
 import { PairFilterBar } from "@/components/PairFilter";
+import { PingBanner } from "@/components/PingBanner";
 import { PipelineOverview } from "@/components/PipelineOverview";
 import { useAuth } from "@/hooks/useAuth";
 import { usePairs } from "@/hooks/usePairs";
+import { usePings } from "@/hooks/usePings";
 import { teamLabel } from "@/lib/format";
 import { UNASSIGNED_OWNER } from "@/lib/owner";
-import { canEditInfo, canManagePairs } from "@/lib/permissions";
+import { canEditInfo, canManagePairs, isCollaborator } from "@/lib/permissions";
 import type { PairFilter } from "@/lib/types";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 // owner 筛选是个人视图偏好，存本地即可，不入库、不影响别人（与全局共享的 sort_order 不同）
 const OWNER_FILTER_STORAGE_KEY = "track.owner-filter";
@@ -28,6 +30,16 @@ export default function HomePage() {
     usePairs(filter, true, ownerFilter);
   const canManage = canManagePairs(user.role);
   const userCanEditInfo = canEditInfo(user.role);
+  // 呼叫确认只在登录用户之间发生，游客不拉这份数据也不显示提示。
+  // 能否对某个 pair 发起呼叫还要看步骤归属，那个判断在 PairCard 内按 pair 逐个算。
+  const userIsCollaborator = isCollaborator(user.role);
+  const { pingByPairId, pings, sendPing, ackPing, dismissPing } =
+    usePings(userIsCollaborator);
+  // 呼叫提示跟着各自的卡片走，顶部横幅只兜底那些被筛选掉、当前看不见的 pair
+  const visiblePairIds = useMemo(
+    () => new Set(pairs.map((p) => p.id)),
+    [pairs]
+  );
 
   // 首帧不能读 localStorage（服务端渲染没有它，会 hydration 不一致），挂载后再恢复
   useEffect(() => {
@@ -173,6 +185,16 @@ export default function HomePage() {
         </div>
       </header>
 
+      <PingBanner
+        pings={pings}
+        pairs={allPairs}
+        visiblePairIds={visiblePairIds}
+        role={user.role}
+        onAck={ackPing}
+        onDismiss={dismissPing}
+        onJumpToPair={handleJumpToPair}
+      />
+
       <section className="mb-6 space-y-4">
         {!authLoading && (
           <>
@@ -208,6 +230,8 @@ export default function HomePage() {
           recentlyUpdated={recentlyUpdated}
           canReorder={canManage}
           onReorder={handleReorder}
+          pingByPairId={pingByPairId}
+          role={user.role}
         />
       )}
 
@@ -251,6 +275,10 @@ export default function HomePage() {
             canEditInfo={userCanEditInfo}
             onUpdated={refresh}
             highlighted={highlightPairId === pair.id}
+            ping={pingByPairId.get(pair.id) ?? null}
+            onSendPing={sendPing}
+            onAckPing={ackPing}
+            onDismissPing={dismissPing}
           />
         ))}
       </section>
